@@ -27,4 +27,4 @@ J(r,1) = u(1:length(r));
 J(g,2) = u(1:length(g));
 J(b,3) = u(end-length(b)+1:end);
 
-J(1,:) = 0.95*[1 1 1 ];
+J(1,:) = RGB('dark blue');

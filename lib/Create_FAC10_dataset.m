@@ -1,9 +1,16 @@
-function [metadata] = Create_FAC10_dataset(T_map,b_map,vis)
-    addpath('../matlab_functions/toolbox_cores')
-    load ../matlab_functions/Core_all
+function [metadata] = Create_FAC10_dataset(T_map,c_map,vis)
+% This script calculates the FAC10 from a collection of firn densities.
+% The firn density dataset is not publically available. Contact me if you
+% wish to obtain it.
+% Baptiste
+% b.vandecrux@gmail.com
+% ========================================================================
+
+    load ./Input/Core_all
     %defining the pore space function
-ps = @(m,rho) max(0,m.*(1./rho -1/873));
-            %% Assigning long-term average temperature and accumulation
+ps = @(m,rho) max(0,m.*(1./rho -1/917));
+
+%% Assigning long-term average temperature and accumulation
 % Core_org = Core;
 disp('Assigning long-term average temperature and accumulation')
 Core{FindCore(Core,'Name','Dome GRIP')}.Data.Density(1:453)=NaN;
@@ -11,14 +18,13 @@ Core{FindCore(Core,'Name','Dome GRIP')}.Data.Density(1:453)=NaN;
 tic
 for i = 1:length(Core)        
     % accumulation
-     [~, ind] = min(distance(Core{i}.Info.Coord1(1),-abs(Core{i}.Info.Coord1(2)),b_map.lat,b_map.lon));
-    Core{i}.Info.b_lt_mean = b_map.b_avg(ind);
+     [~, ind] = min(distance(Core{i}.Info.Coord1(1),-abs(Core{i}.Info.Coord1(2)),c_map.lat,c_map.lon));
+    Core{i}.Info.c_lt_mean = c_map.c_avg(ind);
     %temperature
      [~, ind] = min(distance(Core{i}.Info.Coord1(1),-abs(Core{i}.Info.Coord1(2)),T_map.lat,T_map.lon));
     Core{i}.Info.T_lt_mean =  T_map.T_avg(ind);
 end
 toc
-
 
 %% data treatment for each core
 disp('Data treatment for each core')
@@ -92,10 +98,6 @@ for i = 1:length(Core)
         % removing their density from the firn-only density
         density_firn = density;
         density_firn(find(is_ice)) = NaN;
-        
-        % if rho>750 at shallow depth then it must contain ice
-%         is_ice = and(density_firn>750 , depth<15);
-%         density_firn(is_ice) = NaN;
 
         % assigning surface density if not present
         rho_surf = density(1);
@@ -127,15 +129,10 @@ for i = 1:length(Core)
                 fitted_density = fit(depth(~ind_nan), ...
                     density_firn(~ind_nan), 'poly3');
             end
-% plot(depth, density_firn)
-% hold on
-% plot(depth, fitted_density(depth))
 
             % assigning interpolated densities
             density_firn(ind_nan) = fitted_density(depth(ind_nan));
-% plot(depth, density_firn)
-% hold off
-% pause
+
             ind_nan = find(isnan(density));
             density_org = zeros(size(depth))==1;
 
@@ -155,15 +152,20 @@ for i = 1:length(Core)
         end
         % Plotting firn air content versus depth and extrapolating to 10 m
             if max(Core{i}.Data.Depth)>1000
-                [Core{i}.Data.DensityHL,~]=densitymodel(Core{i}.Info.T_lt_mean, ...
-                    Core{i}.Info.b_lt_mean/1000,315,Core{i}.Data.Depth/100, 'NabarroHerring');
+                [Core{i}.Data.DensityHL,~] = ...
+                    densitymodel(Core{i}.Info.T_lt_mean, ...
+                    Core{i}.Info.c_lt_mean/1000,315,...
+                    Core{i}.Data.Depth/100,...
+                    'NabarroHerring');
             else
                 [Core{i}.Data.DensityHL,~]=densitymodel(Core{i}.Info.T_lt_mean, ...
-                    Core{i}.Info.b_lt_mean/1000,315,0.01:0.01:10, 'NabarroHerring');
+                    Core{i}.Info.c_lt_mean/1000,...
+                    315,0.01:0.01:10, 'NabarroHerring');
             end
                 
 
-            Core{i}.Data.PoreVolume = cumsum(ps(Core{i}.Data.Density.*0.01,Core{i}.Data.Density));
+            Core{i}.Data.PoreVolume = ...
+                cumsum(ps(Core{i}.Data.Density.*0.01,Core{i}.Data.Density));
 
     end
 end
@@ -290,8 +292,9 @@ if plotting
                 if count == 6
                     ylabel('Depth (m)')
                 elseif count == 13
-                    xlabel('Cumulated firn air content (m^3 m^{-2})','Interpreter','tex')
+                    xlabel('Cumulated firn air content (m)','Interpreter','tex')
                 end
+                set(gca,'TickLength',4*get(gca,'TickLength'),'XMinorTick','on','YMinorTick','on')
                 xlim([0 6]);
                 ylim([-10 0])
                 box on
@@ -350,20 +353,20 @@ disp('Create metadata')
 % figure
 metadata = table;
 metadata.Year = [1:10]';
+metadata.Date(1,1:11) = datestr(datetime(2012,1,1),'dd-mmm-yyyy' );
 for i = 1:length(Core)
     metadata.CoreNumber(i) = i;
     metadata.Name{i} = Core{i}.Info.Name;
     metadata.Year(i) = Core{i}.Info.DateCored.Year;
+    metadata.Date(i,1:11) = datestr(Core{i}.Info.DateCored,'dd-mmm-yyyy');
     metadata.Latitude(i) = Core{i}.Info.Coord1(1);
     metadata.Longitude(i) = -abs(Core{i}.Info.Coord1(2));
     metadata.Elevation(i) = Core{i}.Info.Coord1(3);
     metadata.T_avg(i) = Core{i}.Info.T_lt_mean;
-    metadata.b_avg(i) = Core{i}.Info.b_lt_mean;
+    metadata.c_avg(i) = Core{i}.Info.c_lt_mean;
     metadata.Densities{i} = Core{i}.Info.Densities;
     metadata.DepthMax(i) = length(Core{i}.Data.Density)/100;
-
-
-    
+   
     if strcmp('y', Core{i}.Info.Densities) ...
             && metadata.DepthMax(i)>5
         % pore space at 10 m
@@ -377,26 +380,8 @@ for i = 1:length(Core)
         density = Core{i}.Data.Density;
         thickness_weq_mm = 0.01 .* density ;
         depth_weq_mm = cumsum(thickness_weq_mm);
-        [~,ind] = min(abs(depth_weq_mm-Core{i}.Info.b_lt_mean));
+        [~,ind] = min(abs(depth_weq_mm-Core{i}.Info.c_lt_mean));
          metadata.SnowDepth(i) = Core{i}.Data.Depth(ind);
-         metadata.FAC10_snow(i) = Core{i}.Data.PoreVolume(ind);
-         metadata.FAC10_firn(i) = metadata.FAC10(i) - metadata.FAC10_snow(i);
-
-%          plotting
-%          plot(Core{i}.Data.PoreVolume(1:1000),Core{i}.Data.Depth(1:1000))
-% hold on
-%          plot([metadata.FAC10(i) metadata.FAC10(i)],...
-%              Core{i}.Data.Depth([1 1000]))
-%          plot([metadata.FAC10_snow(i) metadata.FAC10_snow(i)],...
-%              Core{i}.Data.Depth([1 ind]))
-%          plot([metadata.FAC10_firn(i) metadata.FAC10_firn(i)],...
-%              Core{i}.Data.Depth([ind 1000]))
-%          set(gca,'YDir','reverse')
-%          ylim([0 1000])
-%          xlim([0 8])
-%          hold off
-%          pause(0.01)
-
     else
         metadata.FAC10_HL(i) = NaN;
     end
@@ -422,7 +407,6 @@ metadata(strcmp(metadata.Name,'core_2015T_A5'),:) = [];
 metadata(strcmp(metadata.Name,'62'),:) = [];
 metadata(strcmp(metadata.Name,'Inge Lehmann'),:) = [];
 metadata(strcmp(metadata.Name,'T19_Spring_2004'),:) = [];
-metadata(strcmp(metadata.Name,'62'),:) = [];
 metadata(strcmp(metadata.Name,'DYE2 1998 combined'),:) = [];
 metadata.Citation{strcmp(metadata.Name,'122')} = 'Steen-Larsen H. C., Masson-Delmotte V., Sjolte J., Johnsen S. J., Vinther B. M., Bre´on F.-M., Clausen H. B., Dahl-Jensen D., Falourd S., Galle´e H., Jouzel J., Kageyama M., Lerche H., Minster B., Picard G., Punge H. J., Risi C., Salas D., Schwander J., Steffen K., Sveinbjo¨rnsdo´ ttir A. E., Svensson A. and White J. (2011) Understanding the climatic signal in the water stable isotope records from the NEEM cores. J. Geophys. Res. 116, D06108. doi:10.1029/2010JD014311.';
 metadata.Name{strcmp(metadata.Name,'122')} = 'NEEM07S3';
@@ -432,8 +416,51 @@ metadata.Name{strcmp(metadata.Name,'122')} = 'NEEM07S3';
 % metadata(strcmp(metadata.Name,'ACT11A2'),:) = [];
 % metadata(strcmp(metadata.Name,'ACT11A'),:) = [];
 
-writetable(metadata,'Output/metadata.csv','Delimiter',';');
+%% ================  FACtot ===========================
+% From Harper et al. (2012) Table S1 we calculate the FAC10 and FAC100 from
+% FC10 and FC100
 
+    ind_long_cores = find(metadata.DepthMax>=100);
+    disp(length(ind_long_cores))
+    dens_bot= NaN*ind_long_cores;
+    for i=1:length(ind_long_cores)
+        dens_bot(i) = Core{metadata.CoreNumber(ind_long_cores(i))}.Data.Density(end);
+    end
+    ind_long_cores = ind_long_cores(dens_bot>830);
+   
+    metadata.FACtot = NaN*metadata.FAC10;
+    
+    for i =1:length(ind_long_cores)
+        x = Core{metadata.CoreNumber(ind_long_cores(i))}.Data.Depth./100;
+        y = Core{metadata.CoreNumber(ind_long_cores(i))}.Data.PoreVolume;
+        
+%         if x(end)<100
+%             Eqn = 'a + (b-a)*exp(-k*x)';
+%             f1 = fit(x,y,Eqn);
+%             x2 = 1:10000;
+%             y2 = f1(x2);
+%             plot(x2,y2,'r','LineWidth',3)
+%             hold on
+%             plot(x,y,'b','LineWidth',2)
+%             hold off
+%             title(Core{metadata.CoreNumber(ind_long_cores(i))}.Info.Name)
+%             xlim([0 100])
+%             pause
+% 
+%             FAC100 = y2(10000);
+%         else
+            FAC100 = y(10000);
+%         end
+
+        metadata.FACtot...
+            (metadata.CoreNumber == metadata.CoreNumber(ind_long_cores(i))) ...
+            =  FAC100;
+    end
+%%
+disp('writing')
+tic
+writetable(metadata,'Output/metadata.csv','Delimiter',';');
+toc
 % cores potentially to exclude
 %     SearchCore(Core,'Name','Site'),...
 %     FindCore(Core,'Name','H3.5-1'),...
@@ -441,7 +468,22 @@ writetable(metadata,'Output/metadata.csv','Delimiter',';');
 %     SearchCore(Core,'Name','H3-1')...
 %     SearchCore(Core,'Name','Benson_1954_10')...
 
-figure('Visible',vis)
+%% Plotting
+
+f = figure('Visible',vis);
+hold on
+scatter(metadata.FAC10,metadata.FAC10_HL,'fill')
+axis tight square
+box on
+temp1 = min(min([get(gca,'Xlim'); get(gca,'Ylim')]));
+temp2 = max(max([get(gca,'Xlim'); get(gca,'Ylim')]));
+plot([temp1 temp2], [temp1 temp2],'--k')
+xlabel('Measured FAC_{10} (m)','interpreter','tex')
+ylabel('Modelled FAC_{10} (m)\newlineusing Arthern et al. (2010)','interpreter','tex')
+    print(f,'Output/FAC10_meas_vs_NH','-dtiff')
+
+% plot distrib
+f= figure('Visible',vis);
 subplot(2,3,1)
 hist(metadata.Year)
 xlabel('Year')
@@ -467,7 +509,7 @@ axis tight square
 box on
 
 subplot(2,3,5)
-hist(metadata.b_avg)
+hist(metadata.c_avg)
 xlabel('Average accumulation')
 axis tight square
 box on
@@ -477,5 +519,6 @@ hist(metadata.FAC10)
 xlabel('Firn air content to 10m')
 axis tight square
 box on
+print(f,'Output/dataset_distribution','-dtiff')
 
 end

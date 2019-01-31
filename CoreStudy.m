@@ -27,7 +27,7 @@
 % 23-08-2018
 % =========================================================================
 
-%% Graph options and path setting
+% Graph options and path setting
 clear all 
 close all
 clc
@@ -65,18 +65,18 @@ switch source_temp_accum
          orig = 'Box13';
      case 2 
          accum_thresh = 600;
-         T_thresh = -20;
+         T_thresh = -19;
          orig = 'MAR';
 end
 
 filename= sprintf('Output/result_%s.txt', orig);
 diary(filename)
 
-%% Loading temperature and accumulation data
+% Loading temperature and accumulation data
 disp('Loading long-term temperature and accumulation maps')
 switch source_temp_accum
     case 1
-            b_map = table;
+            c_map = table;
             T_map = table;
         if exist('mean_temperature_box13.csv') == 2
             temp = dlmread('mean_temperature_box13.csv',';');
@@ -85,9 +85,9 @@ switch source_temp_accum
             T_map.T_avg = temp(:,3);
             
             temp = dlmread('mean_accumulation_box13.csv',';');
-           	b_map.lon = temp(:,1);
-            b_map.lat = temp(:,2);
-            b_map.b_avg = temp(:,3);
+           	c_map.lon = temp(:,1);
+            c_map.lat = temp(:,2);
+            c_map.c_avg = temp(:,3);
         else
             % Load accumulation from Box 13
             namefile = 'Box_Greenland_Accumulation_annual_1840-1999_ver20140214.nc';
@@ -107,16 +107,16 @@ switch source_temp_accum
             end
             fprintf('\nData extracted from nc files.\n');
 
-            b_map.lon = lon(:);
+            c_map.lon = lon(:);
             T_map.lat = lat(:);
-            b_map.lon = lon(:);
+            c_map.lon = lon(:);
             T_map.lat = lat(:);
 
-            b_map.b_avg = mean (acc(:,:,131:end),3);
+            c_map.c_avg = mean (acc(:,:,131:end),3);
             T_map.T_avg = mean (Temperature(:,:,131:end),3);
             
             dlmwrite('./Output/Temp accum maps/mean_temperature_box13.csv', [lon(:) lat(:) T_map.T_avg(:)],'Delimiter',';');
-            dlmwrite('./Output/Temp accum maps/mean_accumulation_box13.csv', [lon(:) lat(:) b_map.b_avg(:)],'Delimiter',';');
+            dlmwrite('./Output/Temp accum maps/mean_accumulation_box13.csv', [lon(:) lat(:) c_map.c_avg(:)],'Delimiter',';');
         end
         
     case 2  % MAR
@@ -137,35 +137,25 @@ switch source_temp_accum
         fileID = fopen(filename,'r');
         dataArray = textscan(fileID, formatSpec, 'Delimiter', delimiter, 'EmptyValue' ,NaN, 'ReturnOnError', false);
         fclose(fileID);
-        b_map = table(dataArray{1:end-1}, 'VariableNames', {'lon','lat','b_avg'});
+        c_map = table(dataArray{1:end-1}, 'VariableNames', {'lon','lat','c_avg'});
         clearvars filename delimiter formatSpec fileID dataArray ans;
 end
-        b_map.b_avg(b_map.b_avg==-999) = NaN;
+        c_map.c_avg(c_map.c_avg==-999) = NaN;
         T_map.T_avg(T_map.T_avg==-999) = NaN;
         lon =  reshape(T_map.lon,561,301);
         lat =  reshape(T_map.lat,561,301);
-
+        
 %% Loading FAC10 dataset
 disp('Loading FAC10 dataset')
-if exist('FAC10 dataset.xlsx') == 2
-    [~, ~, raw] = xlsread('.\Input\FAC10 dataset.xlsx','Sheet1','A2:I345');
-    raw(cellfun(@(x) ~isempty(x) && isnumeric(x) && isnan(x),raw)) = {''};
-    cellVectors = raw(:,[2,9]);
-    raw = raw(:,[1,3,4,5,6,7,8]);
-    data = reshape([raw{:}],size(raw));
-    metadata = table;
-    metadata.Year = data(:,1);
-    metadata.Name = cellVectors(:,1);
-    metadata.Latitude = data(:,2);
-    metadata.Longitude = data(:,3);
-    metadata.T_avg = data(:,4);
-    metadata.b_avg = data(:,5);
-    metadata.DepthMax = data(:,6);
-    metadata.FAC10 = data(:,7);
-    metadata.Citation = cellVectors(:,2);
-    clearvars data raw cellVectors;
+LoadFACData = 1; %Load the 
+
+if exist('./Input/Core_all.mat') == 2
+    disp('Calculating FAC10 from firn density')
+    [metadata] = Create_FAC10_dataset(T_map,c_map,vis);
 else
-    metadata = Create_FAC10_dataset(T_map,b_map,vis);
+    disp('Reading FAC10 dataset in file')
+    filename = '.\Input\FAC_dataset.csv';
+    [metadata] = LoadFAC10Dataset(filename);
 end
 
 % The metadata is distributed with average temperature and accumulation
@@ -175,8 +165,8 @@ if source_temp_accum == 2
     for i = 1:height(metadata)        
         % accumulation
          [~, ind] = min(distance( metadata.Latitude(i),metadata.Longitude(i),...
-             b_map.lat,b_map.lon));
-        metadata.b_avg(i) = b_map.b_avg(ind);
+             c_map.lat,c_map.lon));
+        metadata.c_avg(i) = c_map.c_avg(ind);
         metadata.T_avg(i) = T_map.T_avg(ind);
     end
 end
@@ -201,11 +191,9 @@ is_firn = interp2(XX_firn,YY_firn,FirnArea,lon(:), lat(:),'nearest');
 is_firn(isnan(is_firn)) = 0;
 
 T_map.T_avg(find(~is_firn)) = NaN;
-b_map.b_avg(find(~is_firn)) = NaN;
+c_map.c_avg(find(~is_firn)) = NaN;
 
-% Loading raster files
-disp('Applying on the T_avg map')
-
+% Loading T and b raster files
 Ice = shaperead('IcePolygon_3413.shp');
 GL = shaperead('GL_land.shp');
 [FirnArea_3413, R_fa3413] = geotiffread('mean_temperature_box13_3413_firn.tif');
@@ -214,34 +202,33 @@ Firn = shaperead('FirnLayer2000-2017_final_3413.shp');
 switch source_temp_accum
     case 1
         [T_raster, ~] = geotiffread('mean_temperature_box13_3413_firn.tif');
-        [b_raster, R] = geotiffread('mean_accumulation_box13_3413_firn.tif');
+        [c_raster, R] = geotiffread('mean_accumulation_box13_3413_firn.tif');
         I = geotiffinfo('mean_temperature_box13_3413_firn.tif'); 
 
     case 2
         [T_raster, ~] = geotiffread('T_avg_1979-2014_MAR_3413_firn.tif');
-        [b_raster, R] = geotiffread('Net_Snowfall_avg_1979-2014_MAR_3413_firn.tif');
+        [c_raster, R] = geotiffread('Net_Snowfall_avg_1979-2014_MAR_3413_firn.tif');
         I = geotiffinfo('T_avg_1979-2014_MAR_3413_firn.tif'); 
 end
-
+        [x_map,y_map]=pixcenters(I);
+        XX = repmat(x_map,length(y_map),1);
+        YY = repmat(y_map',1,length(x_map));
+        
         T_raster(T_raster==0)=NaN;
         T_raster(T_raster==-999)=NaN;
         T_raster(T_raster==-9999)=NaN;
         T_raster(T_raster<-9999)=NaN;
-        b_raster(b_raster==0)=NaN;
-        b_raster(b_raster==-999)=NaN;
-        b_raster(b_raster==-9999)=NaN;
-        b_raster(b_raster<-9999)=NaN;
-        
-        [x_map,y_map]=pixcenters(I);
-        XX = repmat(x_map,length(y_map),1);
-        YY = repmat(y_map',1,length(x_map));
+        c_raster(c_raster==0)=NaN;
+        c_raster(c_raster==-999)=NaN;
+        c_raster(c_raster==-9999)=NaN;
+        c_raster(c_raster<-9999)=NaN;
       
         % Cold area
         DSA = (T_raster<=T_thresh)+0;
         % Warm High Accumulation area
-        HAWSA = and(T_raster>T_thresh,b_raster>accum_thresh)+0;
+        HAPA = and(T_raster>T_thresh,c_raster>accum_thresh)+0;
         % Warm Low Accumulation area
-        LAWSA = and(T_raster>T_thresh,b_raster<=accum_thresh)+0;
+        LAPA = and(T_raster>T_thresh,c_raster<=accum_thresh)+0;
         
         format BANK 
 disp('Firn area (km2):')
@@ -249,881 +236,370 @@ fprintf('%0.2f\n\n',sum(sum(~isnan(T_raster))) * R.CellExtentInWorldX *R.CellExt
 
 disp('DSA (km2):')
 fprintf('%0.2f\n',sum(sum(DSA)) * R.CellExtentInWorldX *R.CellExtentInWorldY /1000000);
-fprintf('%0.1f %% \n\n',sum(sum(DSA)) /sum(sum(~isnan(T_raster)))*100 );
+fprintf('%0.1f %% \n',sum(sum(DSA)) /sum(sum(~isnan(T_raster)))*100 );
+fprintf('%i observations \n\n',length(metadata.FAC10(metadata.T_avg<T_thresh)) );
 
-disp('LAWSA (km2):')
-fprintf('%0.2f\n',sum(sum(LAWSA)) * R.CellExtentInWorldX *R.CellExtentInWorldY /1000000);
-fprintf('%0.1f %%\n\n',sum(sum(LAWSA)) /sum(sum(~isnan(T_raster)))*100 );
+disp('LAPA (km2):')
+fprintf('%0.2f\n',sum(sum(LAPA)) * R.CellExtentInWorldX *R.CellExtentInWorldY /1000000);
+fprintf('%0.1f %%\n',sum(sum(LAPA)) /sum(sum(~isnan(T_raster)))*100 );
+fprintf('%i observations after 2010\n',length(metadata.FAC10(...
+    and(and(metadata.T_avg>=T_thresh, metadata.c_avg<accum_thresh), ...
+    metadata.Year>=2010) ) ) );
+fprintf('%i observations between 1997 and 2010\n\n',length(metadata.FAC10(...
+    and(and(metadata.T_avg>=T_thresh, metadata.c_avg<accum_thresh), ...
+    and(metadata.Year<=2009, metadata.Year>=1997) ) ) ) );
 
-disp('HAWSA (km2):')
-fprintf('%0.2f\n',sum(sum(HAWSA)) * R.CellExtentInWorldX *R.CellExtentInWorldY /1000000);
-fprintf('%0.1f %%\n\n',sum(sum(HAWSA)) /sum(sum(~isnan(T_raster)))*100 );
+metadata(and(and(metadata.T_avg>=T_thresh, metadata.c_avg<accum_thresh), ...
+    and(metadata.Year<=2009, metadata.Year>=1997) ),:);
 
-    x = T_map.T_avg(~isnan(T_map.T_avg));
-    y = b_map.b_avg(~isnan(T_map.T_avg));
-    k = boundary(x, y, 0.8);
+disp('HAPA (km2):')
+fprintf('%0.2f\n',sum(sum(HAPA)) * R.CellExtentInWorldX *R.CellExtentInWorldY /1000000);
+fprintf('%0.1f %%\n',sum(sum(HAPA)) /sum(sum(~isnan(T_raster)))*100 );
+fprintf('%i observations after 2010\n',length(metadata.FAC10(...
+    and(and(metadata.T_avg>=T_thresh, metadata.c_avg>=accum_thresh), ...
+    metadata.Year>=2010) ) ) );
+fprintf('%i observations from 1998\n\n',length(metadata.FAC10(...
+    and(and(metadata.T_avg>=T_thresh, metadata.c_avg>=accum_thresh), ...
+    and(metadata.Year<=1998, metadata.Year>=1998) ) ) ) );
+
+    x = T_map.T_avg(and(~isnan(T_map.T_avg),~isnan(c_map.c_avg)) );
+    y = c_map.c_avg(and(~isnan(T_map.T_avg),~isnan(c_map.c_avg)) );
+    if source_temp_accum==2
+        k = boundary(x, y, 0.5);
+    else
+        k = boundary(x, y, 0.2);
+    end
     poly_100 = [x(k), y(k)];
 
-f = figure('Visible',vis,'outerposition',[1 0 15 20]);
-ha = tight_subplot(4,2,[0.01 0.07],[0.14 0.5],[0.17 0.17]);
-for i = 3:4
-    set(ha(i),'Visible','off')
-end
+PlottingFigure1(metadata, T_thresh, accum_thresh, ...
+    GL,Ice,Firn, DSA, HAPA, LAPA, poly_100, I, orig, vis);
 
-set(f,'CurrentAxes',ha(1))
-hold on
+%% FACtot
+metadata = metadata_save;
+Harper_latlon = [69.87650	47.01020; ...
+69.84802	47.27358; ...
+69.81998	47.45050; ...
+69.78360	47.67018; ...
+69.75693	47.88028; ...
+69.73802	48.06097; ...
+69.72505	48.19020; ...
+69.73908	48.24030; ...
+69.71978	48.26740; ...
+69.70617	48.34497; ...
+69.68743	48.49967; ...
+69.67393	48.59112; ...
+69.66018	48.68945];
 
-[~, ind_sorted] = sort(metadata.FAC10);
-ind_sorted=flipud(ind_sorted);
+FC_Harper = [3717		9798; ...
+3642		10891; ...
+3337		8580; ...
+2931		10676; ...
+3133		10280; ...
+2758		12071; ...
+2529		7340; ...
+2376		6145; ...
+2167		5125; ...
+1148		2915; ...
+1902		2619; ...
+1816		3287; ...
+517		540];
 
-vert = [ 63, 182, 83 ]/255;
-rouge = [ 194, 78, 67 ]/255;
-jaune = [ 223, 199, 79 ]/255;
+FAC_Harper = FC_Harper*NaN;
+FAC_Harper(:,1) = (10*917 - 10 * 843 + FC_Harper(:,1)) ./ 917;
+FAC_Harper(:,2) = (100*917 - 100 * 843 + FC_Harper(:,2)) ./ 917;
 
-patch([T_thresh T_thresh max(metadata.T_avg)+1 max(metadata.T_avg)+1],...
-    [accum_thresh max(metadata.b_avg)+1 max(metadata.b_avg)+1 accum_thresh],...
-    vert)
-patch([min(metadata.T_avg)-1 min(metadata.T_avg)-1 T_thresh T_thresh ],...
-    [0 max(metadata.b_avg)+1 max(metadata.b_avg)+1 0],...
-    jaune)
-patch([T_thresh T_thresh max(metadata.T_avg)+1 max(metadata.T_avg)+1],...
-    [0 accum_thresh accum_thresh 0],...
-    rouge)
-
-g = patch(poly_100(:,1),poly_100(:,2), RGB('light light gray'));
-g.FaceColor = 'w';
-g.LineWidth = 1;
-alpha(g,0.35)
-
-xlim([min(metadata.T_avg)-1 max(metadata.T_avg)+1])
-ylim([0 max(metadata.b_avg)+1])
-% plot(x,(x+28)*20+320,'k','LineWidth',2)
-% plot(get(gca,'Xlim'),accum_thresh*ones(1,2),'--k','LineWidth',2)
-% plot([T_thresh T_thresh],[0 1]*accum_thresh,'--k','LineWidth',2)
-
-h_s1 = scatter(metadata.T_avg(ind_sorted),...
-    metadata.b_avg(ind_sorted),...
-    140,...
-    metadata.FAC10(ind_sorted)...ones(size(metadata.b_avg(ind_sorted))) * 0.8*[1 1 1], ...
-    ...+ (metadata.b_avg(ind_sorted)>accum_thresh) * 0.8*[1 0 0],...0.*col(discretize(metadata.Year,time_bin),:),...
-    ,'o','fill');
-
-h_s2 = plot(metadata.T_avg(ind_sorted),...
-    metadata.b_avg(ind_sorted),'ok','MarkerSize',3,'LineWidth',0.5,'MarkerFaceColor','w');
-
-cc = colorbar('NorthOutside');
-cc.Label.String = 'Firn air content (m^3 m^{-2})';
-colormap('toh')
-
-h_leg = legend([g h_s2],'Firn area',...
-    'Firn cores',...
-    'Location','NorthWest');
-
-set(gca,'Ticklength',[0.08 0.16]/2,'layer','top','yaxislocation','right')
-box on
-ylabel('$\mathrm{\overline{\dot{b}} \:(mm w.eq. yr^{-1})}$','Interpreter','latex')
-xlabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex') 
-
-% Explaining dataset division
-ind_HighAcc_HighTemp = and(metadata.b_avg>accum_thresh,metadata.T_avg>T_thresh);
-ind_Rest = or(metadata.b_avg<=accum_thresh,metadata.T_avg<=T_thresh);
-ha(1).Position = [0.45 0.42 0.4 0.3];
-
-set(f,'CurrentAxes',ha(6))
-ind_jaunevert = or(metadata.T_avg<T_thresh,metadata.b_avg>accum_thresh);
-    % ha(6).Position(2) = 0.28;
-    scatter(metadata.T_avg(ind_jaunevert),metadata.FAC10(ind_jaunevert),20,'k','fill')
+f= figure('Visible',vis,'Outerposition',[1 1 13 13]);
+ha = tight_subplot(2,1,0.1,[0.3 0],[0.1 0.3]);
+    set(gcf,'CurrentAxes', ha(1))
+    
+    ind_long = find(~isnan(metadata.FACtot));
+    x = metadata.FAC10(ind_long);
+    y = metadata.FACtot(ind_long);
+    col = brewermap(length(ind_long)+1,'set1')*0+1;
+   
+    symbol = {'o'}; %'o','s','d','^','v','>','<'};
     hold on
-    % plot([T_thresh T_thresh],[0 7],'--k','LineWidth',2)
-    xlabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
+    for i = 1:length(ind_long)
+        plot(metadata.FAC10(ind_long(i)),...
+            metadata.FACtot(ind_long(i)),...
+            symbol{mod(i,length(symbol))+1},'MarkerFaceColor',col(i,:),...
+            'MarkerEdgeColor',[0 0 0],'LineWidth',2)
+    end
+    i=i+1;
+    plot(FAC_Harper(:,1), FAC_Harper(:,2),symbol{mod(i,length(symbol))+1},...
+        'MArkerFaceColor',col(i,:),'MArkerEdgeColor',[0 0 0],'LineWidth',2)
+
+        x1 = [x; FAC_Harper(:,1)];
+        y1 = [y; FAC_Harper(:,2)];
+        [x1,ind] = sort(x1);
+        y1=y1(ind);
+        lm = fitlm(x1,y1,'Intercept',false);
+        h1 = plot(x1, lm.Coefficients.Estimate(1)*x1,'k');
+        h2 = patch(x1([1 end end 1]), ...
+            [lm.Coefficients.Estimate(1)*x1([1 end])+2*lm.RMSE ;...
+            (lm.Coefficients.Estimate(1)*x1([end 1])-2*lm.RMSE)],...
+            RGB('light light gray'));
+        h2.LineStyle = 'none';
+        uistack(h2,'bottom')
+unc_FACtot = 2*lm.RMSE;
     box on
+    axis tight square
+    xlabel('Observed FAC_{10} (m)','Interpreter','tex')
+    ylabel('Observed FAC_{tot} (m)','Interpreter','tex')
+legend([h1 h2],'Linear regression','2 \times RMSD',...
+    'Location','NorthWest','Interpreter','tex')
+    set(gca,'Ticklength',[0.08 0.16]/2,'layer','top')
 
-    axis tight
-    xlimits = get(gca,'XLim');
-    pp1 = patch([xlimits(1) xlimits(1) T_thresh-0.2 T_thresh-0.2 ],...
-        [0 7 7 0],...
-        jaune);
-    pp2 = patch([T_thresh-0.2 T_thresh-0.2 xlimits(2)   xlimits(2)],...
-        [0 7 7 0],...
-        vert);
-    uistack(pp1,'bottom')
-    uistack(pp2,'bottom')
-
-    h_ylab = ylabel('FAC_{10} (m^3 m^{-2})','Interpreter','tex');
-set(gca,'Ticklength',[0.08 0.16]/2.5,'Ticklength',[0.08 0.16]/2,...
-    'XMinorTick','on','YMinorTick','on','XAxisLocation','bottom','YAxisLocation','right','layer','top')
-axis tight
-
-ylim([0 7])
-
-set(f,'CurrentAxes',ha(8))
-ha(8).Visible = 'off';
-
-set(f,'CurrentAxes',ha(5))
-    % ha(6).Position(2) = 0.28;
-    scatter(metadata.T_avg(ind_Rest),metadata.FAC10(ind_Rest),20,'k','fill')
-    hold on
-    % plot([T_thresh T_thresh],[0 7],'--k','LineWidth',2)
-    xlabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-    box on
-    set(gca,'Ticklength',[0.08 0.16]/2.5,'XMinorTick','on','YMinorTick','on',...
-        'XAxisLocation','bottom','YAxisLocation','left','layer','top')
-    axis tight
-    xlimits = get(gca,'XLim');
-    pp1 = patch([xlimits(1) xlimits(1) T_thresh T_thresh ],...
-        [0 7 7 0],...
-        jaune);
-    pp2 = patch([T_thresh T_thresh xlimits(2)   xlimits(2)],...
-        [0 7 7 0],...
-        rouge);
-    uistack(pp1,'bottom')
-    uistack(pp2,'bottom')
-    ylim([0 7])
-    h_ylab = ylabel('FAC_{10} (m^3 m^{-2})','Interpreter','tex');
-
-set(f,'CurrentAxes',ha(7))
-ha(7).Visible = 'off';
-
-for i=1:8
-    set(f,'CurrentAxes',ha(i))
-    set(gca,'FontSize',14,'FontName','Times New Roman')
-end
- 
-set(f,'CurrentAxes',ha(2))
-ha(2).Position = [-0.005 0.33 0.53 0.53];
+set(gcf,'CurrentAxes', ha(2))
 hold on
-for i = 1:length(GL)
-    ind = isnan(GL(i).X+GL(i).Y);
-    GL(i).Y(ind)=[];
-    GL(i).X(ind)=[];
-    patch(GL(i).X,GL(i).Y,RGB('gray'))
+    [p4, p5] = PlotBackground(GL,Ice,Firn);
+
+for i = 1:length(ind_long)
+
+    plot(metadata.X(ind_long(i)),...
+        metadata.Y(ind_long(i)),...
+        symbol{mod(i,length(symbol))+1},...
+    'MArkerFaceColor',col(i,:),'MArkerEdgeColor',[0 0 0],'LineWidth',2)
+%     leg_text{i} = Core{metadata.CoreNumber(ind_long(i))}.Info.Name;
 end
-for i = 1:length(Ice)
-    ind = isnan(Ice(i).X+Ice(i).Y);
-    Ice(i).Y(ind)=[];
-    Ice(i).X(ind)=[];
-    patch(Ice(i).X,Ice(i).Y,RGB('light light gray'))
-end
+i=i+1;
 
-for kk = 1: length(Firn)
-    fill(Firn(kk).X,Firn(kk).Y,'w')
-end
-hold on
-% plot(XX(ind0),YY(ind0),'.')
-CA_save = DSA;
-WHA_save = HAWSA;
-WLA_save = LAWSA;
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',3);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-        DSA(DSA == 0)=NaN;
-        HAWSA(HAWSA == 0)=NaN;
-        LAWSA(LAWSA == 0)=NaN;
-p1 = surf(XX,YY,DSA*0, DSA);
-p2 = surf(XX,YY,HAWSA*0, HAWSA+1);
-p3 = surf(XX,YY,LAWSA*0, LAWSA+2);
-p1.LineStyle = 'none';
-p2.LineStyle = 'none';
-p3.LineStyle = 'none';
-p1.FaceColor = jaune;
-p2.FaceColor = vert;
-p3.FaceColor = rouge;
+[X_Harper, Y_Harper] = polarstereo_fwd( Harper_latlon(:,1),-Harper_latlon(:,2),...
+    6378137,0.08181919, 70,-45);
+plot(X_Harper, Y_Harper,...
+    symbol{mod(i,length(symbol))+1},...
+    'MArkerFaceColor',col(i,:),'MArkerEdgeColor',[0 0 0],'LineWidth',2)
+    daspect( [1 1 1])
+ha(2).XTickLabel = '';
+ha(2).YTickLabel = '';
+ha(2).Box = 'on';
+ha(1).Units = 'normalized';
+ha(1).Position = [0.1 0.17 0.8 0.75];
 
-plot(metadata.X, metadata.Y,'ok',...
-    'MarkerFaceColor','w','MarkerSize',3)
-            xlim(1.0e+05 *[-6.2164    8.4827])
-            ylim(1.0e+06 *[-3.3439   -0.6732])
-            set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-         h_leg_map =  legendflex([p1 p2 p3], {'Dry Snow Area','High Accumulation Wet Snow Area',...
-             'Low Accumulation Wet Snow Area'},...
-                        'ref', gcf, ...
-                       'anchor', {'n','n'}, ...
-                       'buffer',[0.3 -20], ...
-                       'nrow',3,...
-                       'box','off',...
-                       'fontsize',13);  
-daspect( [1 1 1])
+ha(2).Units = 'normalized';
+ha(2).Position = [0.59 0.21 0.2 0.35];
+    axis fill
+    set(gca,'Ticklength',[0.08 0.16]*0,'layer','top')
 
-% Create textbox
-annotation(f,'textbox',...
-    [0.07 0.78 0.04 0.07],...
-    'String','a)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
+print(f,'Output/FAC10_vs_FACtot','-dtiff') 
+print(f,'Output/FAC10_vs_FACtot','-dpdf') 
 
-% Create textbox
-annotation(f,'textbox',...
-    [0.43 0.82 0.04 0.05],...
-    'String','b)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',19,...
-    'FitBoxToText','off');
+% Assigning FACtot
+metadata.FACtot = lm.Coefficients.Estimate(1) * metadata.FAC10;
+metadata.FACtot(ind_long) = y;
+a_FAC = lm.Coefficients.Estimate(1);
+% b_FAC = lm.Coefficients.Estimate(1);
+% b_FAC = 0;
+metadata_save = metadata;
 
-% Create textbox
-annotation(f,'textbox',...
-    [0.17 0.24 0.04 0.05],...
-    'String','c)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
+%% ===== Temperature regression in the Dry Snow Area ===============
+disp('Selecting points in the cold area')
+vis_save = vis;
+metadata = metadata_save;
+met = metadata;
+ind = and(met.T_avg>=T_thresh,met.c_avg<=accum_thresh);
+% ind = and(met.T_avg>T_thresh,met.c_avg>=accum_thresh);
+met(ind,:) = [];
+fprintf('\nUsing %i cores to build the DSA\n',size(met,1))
+% 3D exploration of accumulation and temperature control
 
+% Fitting DSA surface
+    T_bins = linspace(min(met.T_avg),max(met.T_avg),5);
+    ind_bins = discretize(met.T_avg,T_bins);
+    W = NaN(size(met.T_avg));
+    for i =1:length(met.T_avg)
+        W(i) = 1/sum(ind_bins==ind_bins(i)) *1/(length(T_bins)-1);
+    end
 
-% Create textbox
-annotation(f,'textbox',...
-    [0.53 0.24 0.04 0.05],...
-    'String','d)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
+    FAC_fit_temp = fit(met.T_avg,met.FAC10,'poly1',...
+        'Weight', W);
+    Coef = [FAC_fit_temp.p1 FAC_fit_temp.p2];
+    FAC_fit_DSA = @(x,y) reshape(Coef(1).*y(:)+Coef(2),size(y));
 
-print(f,sprintf('Output/data_presentation_%s',orig),'-dtiff')
-print(f,sprintf('Output/data_presentation_%s',orig),'-dpdf','-r0')
+[RMSD, bias] = PlottingDSA(met, FAC_fit_DSA, Coef, T_thresh, vis, orig);
+disp(RMSD)
+uncert_DSA = RMSD*2;
 
 %% climatic control on firn line
-figure('Visible',vis)
-hold on
+%loading firn line
+Firn_4326 = shaperead('FirnLayer2000-2017_final_4326.shp');
+
+ind_nonan = find(~isnan(T_map.T_avg));
+DT = delaunayn([T_map.lon(ind_nonan), T_map.lat(ind_nonan)]);
+ind_firn_line = [];
+
+for i = 1:length(Firn_4326)
+    A = polyarea(Firn_4326(i).X(~isnan(Firn_4326(i).X))', ...
+        Firn_4326(i).Y(~isnan(Firn_4326(i).X))');
+
+        ind = dsearchn([T_map.lon(ind_nonan), T_map.lat(ind_nonan)], DT, ...
+        [Firn_4326(i).X(~isnan(Firn_4326(i).X))' Firn_4326(i).Y(~isnan(Firn_4326(i).X))']);
+        ind_firn_line = [ind_firn_line; unique(ind_nonan(ind))];
+end
+
+clearvars DT
 ind_no_nan=find(~isnan(T_map.T_avg));
 
-scatter(T_map.lon(ind_no_nan),T_map.lat(ind_no_nan))
-k = boundary(T_map.lon(ind_no_nan),T_map.lat(ind_no_nan),1);
-scatter(T_map.lon(ind_no_nan(k)),T_map.lat(ind_no_nan(k)))
-plot(T_map.lon(ind_no_nan(k)),T_map.lat(ind_no_nan(k)),'LineWidth',2)
+%% Plotting
+% fitting a polynomial to the firn line
 
-ind_firn_line = ind_no_nan(k);
+lat_FL_obs = T_map.lat(ind_firn_line);
+lon_FL_obs = c_map.lon(ind_firn_line);
+[X_FL_obs, Y_FL_obs] = polarstereo_fwd(lat_FL_obs, lon_FL_obs,...
+    6378137,0.08181919, 70,-45);
 
-figure('Visible',vis)
-scatter(T_map.T_avg(ind_firn_line),...
-    b_map.b_avg(ind_firn_line))
-[x, ind_sorted] = sort(T_map.T_avg(ind_firn_line));
-temp = b_map.b_avg(ind_firn_line);
-y=temp(ind_sorted);
-firn_line = fit(x,y,'exp1');
-hold on 
-plot(x, firn_line(x),'r','LineWidth',2)
-box on
-ylabel('Accumulation')
-xlabel('Temperature')
-
-accum_zerofirn = b_map.b_avg(ind_firn_line);
-temp_zerofirn = T_map.T_avg(ind_firn_line);
-
-%% ===== Region 1: Cold elevated regions ===============
-disp('Selecting points in the cold area')
-metadata = metadata_save;
-time_bin = [1949.50       1959.50       1969.50       1979.50 ...
-    1989.50       1996.50      2009.5  2019.50];
-col = lines(length(time_bin)-1);
-
-ind = metadata.T_avg>=T_thresh;
-metadata(ind,:) = [];
-fprintf('\nUsing %i cores to build the DSA\n',size(metadata,1))
-% 3D exploration of accumulation and temperature control
-f = figure('Visible',vis,'outerposition',[1 0 20 30]);
-ha = tight_subplot(1,1,0.1,0.3,0.3);
-set(f,'CurrentAxes',ha(1))
-hold on
-
-% plotting the core derived FAC
-scatter3(metadata.b_avg, ...
-    metadata.T_avg,metadata.FAC10,...
-    100,col(discretize(metadata.Year,time_bin),:),'fill') 
-
-hold on
-
-% Plotting NH surface
-    Eqn = 'FAC_NH_func(x,y,a)';
-    FAC_fit_CA = fit([metadata.b_avg, metadata.T_avg],metadata.FAC10,Eqn);
-      
-    disp(FAC_fit_CA.a)
-xx = linspace(min(metadata.b_avg),max(metadata.b_avg));
-yy = linspace(min(metadata.T_avg),max(metadata.T_avg));
-[gridx, gridy] = meshgrid(xx,yy);
-
-h_HL = surf(gridx,gridy,FAC_fit_CA(gridx,gridy),3*ones(size(gridx)));
-alpha(h_HL, 0.5);
-h_HL.LineStyle = 'none';
-
-ME = mean(metadata.FAC10-FAC_fit_CA(metadata.b_avg, metadata.T_avg));
-RMSE = sqrt(mean((metadata.FAC10-FAC_fit_CA(metadata.b_avg, metadata.T_avg)).^2));
-axis tight 
-    zlim([0 6])   
- box on
- 
-view(ha,[-76.4 27.6]);
- uncert_DSA = RMSE*2;
-h_title = title('a) Dry Snow Area','Interpreter','tex');
-h_title.Units = 'Normalized';
-h_title.Position(2) = 1.4;
-h_xlab = xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-h_xlab.Units = 'Normalized';
-h_xlab.Position = [1.2   -0.07 0];
-ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-zlabel('FAC_{10} (m^{3} m^{-2})','Interpreter','tex')
-time_bin2 = 1949.50 :10:2019.50 ;
-colbar =contourcmap('lines',time_bin2,'colorbar','on','YLabelString','Year');
-colbar.Position(1) = 0.75;
-colbar.YTickLabel = time_bin2+0.5;
-colbar.YTickLabel(end,:) = '2017';
-colbar.YTickLabel(7,:) = '2010';
-colbar.YTickLabel(6,:) = '1998';
-
-annotation(f,'textarrow',0.6*[1 1],[0.75 0.6])
-
-h_leg = annotation('textbox','String',sprintf(['Densification law from Arthern et al. (2010) \\newline', ...
-    '\\rho_{fresh snow} = %0.2f kg m^{-3}   RMSD = %0.3f m^{3} m^{-2}'],FAC_fit_CA.a,RMSE),'Interpreter','tex');
-h_leg.Units = 'Normalized';
-h_leg.Position(2) = 0.73;
-h_leg.Position(1) = 0.14;
-h_leg.FontSize = 15;
-h_leg.FitBoxToText = 'on';
-h_leg.BackgroundColor = 'w';
-
-
-print(f,sprintf('./Output/ColdAreas_%s',orig),'-dtiff')
-
-% optional plot to fit the NH dry compaction function to each year
-% individually:
-% FAC_fit_CA_yr = {};
-% figure('Visible',vis)
-% 
-% hold on
-%  ind_binned = discretize(metadata.Year,time_bin);
-%     for i = 1: length(time_bin)
-%         x = metadata.b_avg(ind_binned == i);
-%         y = metadata.T_avg(ind_binned == i);
-%         z = metadata.FAC10(ind_binned == i);
-%         if length(x)<5
-%             continue
-%         end
-%              % plotting the core derived FAC
-%         scatter3(x,y,z,...
-%             70,col(i,:),'fill') 
-%         format shortg
-%         Eqn = 'FAC_NH_func(x,y,a)';
-%         FAC_fit_CA_yr{i} = fit([x, y],z,Eqn);
-% 
-%         xx = linspace(min(metadata.b_avg),max(metadata.b_avg));
-%         yy = linspace(min(metadata.T_avg),max(metadata.T_avg));
-%         [gridx, gridy] = meshgrid(xx,yy);
-% 
-%         h_HL = surf(gridx,gridy,FAC_fit_CA_yr{i}(gridx,gridy),3*ones(size(gridx)));
-%         alpha(h_HL, 0.5);
-%         h_HL.LineStyle = 'none';
-%         h_HL.FaceColor = col(i,:);
-%         view([-76.4 27.6]);
-%         RMSD_period  = (mean((z - FAC_fit_CA(x,y))));
-%         fprintf('%i   %i   %0.2f   %0.2f   %0.2f\n', round(time_bin(i)), round(time_bin(i+1)),...
-%             nanmean(nanmean(FAC_fit_CA_yr{i}(gridx,gridy))) ,FAC_fit_CA_yr{i}.a, RMSD_period)
-% 
-% %         pause
-%     end
-
-%% ===== Region 2: High accumulation areas =============
-disp('Selecting points in the HAWSA')
-metadata = metadata_save;
-
-ind = or(metadata.T_avg<T_thresh-1,metadata.b_avg<accum_thresh);
-% ind = metadata.T_avg<T_thresh;
-metadata(ind,:) = [];
-ind = metadata.Year<2010;
-metadata(ind,:) = [];
-
-fprintf('\nUsing %i cores to build the HAWSA\n',size(metadata,1))
-
-x1 = metadata.T_avg;
-x2 = metadata.b_avg;
-z = metadata.FAC10;
-
-f = figure('Visible', vis, 'outerposition',[0 0 20 20]);
-subplot(2,1,1)
-scatter(x1,z)
-hold on
-[lm, h] = Plotlm(x1,z,'Annotation','off','LineStyle','-','LineWidth',1);
-title(sprintf('FAC_10 = %0.2f * T_a + %0.2f \n RMSD = %0.2f p-value = %0.2f',...
-    lm.Coefficients.Estimate(2), lm.Coefficients.Estimate(1), ...
-    lm.RMSE ,max(lm.Coefficients.pValue)))
-xlabel('Ta')
-ylabel('FAC_10')
-box on
-
-subplot(2,1,2)
-scatter(x2,lm.Residuals.Raw)
-hold on
-[lm2, h] = Plotlm(x2,lm.Residuals.Raw,'Annotation','off','LineStyle','-','LineWidth',1);
-title(sprintf('FAC_10 = %0.2g * b_a + %0.2f \n RMSD = %0.2f p-value = %0.2f',...
-    lm2.Coefficients.Estimate(2), lm2.Coefficients.Estimate(1), ...
-    lm2.RMSE ,max(lm2.Coefficients.pValue)))
-
-% title(sprintf('Mean = %0.2f   RMSD = %0.2f',mean(z),std(z)))
-xlabel('Accumulation')
-ylabel('FAC_10')
-box on
-print(f,sprintf('./Output/LinReg_HighAccumulationArea_%s',orig),'-dtiff')
-
-% preparing the surfaces
-% metadata = metadata_save;
-% ind = or(metadata.T_avg<T_thresh,metadata.b_avg<accum_thresh);
-% % ind = metadata.T_avg<T_thresh;
-% metadata(ind,:) = [];
-    T_extrap = min(metadata.T_avg):0.5:-2;
-FAC_nofirn = 0;
-
-x_all = [metadata.b_avg; firn_line(T_extrap')];
-y_all = [metadata.T_avg; T_extrap'];
-z_all = [metadata.FAC10; FAC_nofirn*ones(size(T_extrap'))];
-
-xx = linspace(accum_thresh-100,3000,1000);
-yy = linspace(T_thresh-5,-2,1000);
-
-[sf_mid, gridx, gridy] = gridfit(x_all, y_all,z_all, xx,yy,'smoothness',4);
-sf_mid = min(sf_mid,lm.Coefficients.Estimate(2)*gridy + lm.Coefficients.Estimate(1));
-sf_mid = max(0,sf_mid);
-FAC_fit_HA_mid = @(x,y) interp2(xx,yy,sf_mid,x,y);
-
-sf_high = 0.*gridx;
-sf_high(gridx>reshape(firn_line(gridy),size(gridy))) = ...
-    lm.Coefficients.Estimate(2)*gridy(gridx>reshape(firn_line(gridy),size(gridy))) + lm.Coefficients.Estimate(1);
-FAC_fit_HA_high = @(x,y) interp2(xx,yy,sf_high,x,y);
-
-sf_low = 0.*gridx;
-sf_low(gridx>reshape(firn_line(gridy),size(gridy))) = ...
-    lm.Coefficients.Estimate(2)*gridy(gridx>reshape(firn_line(gridy),size(gridy))) ...
-    + lm.Coefficients.Estimate(1);
-line_low = fit(metadata.b_avg,metadata.T_avg,'poly1');
-sf_low(gridy>reshape(line_low(gridx)+2,size(gridy))) = 0;
-sf_low = min(sf_low,sf_mid);
-
-FAC_fit_HA_low = @(x,y) interp2(xx,yy,sf_low,x,y);
-
-xx_plot = linspace(accum_thresh,3000,200);
-yy_plot = linspace(T_thresh,-1,1000);
-[gridx,gridy] = meshgrid(xx_plot, yy_plot);
-
-%%
-f = figure('Visible', vis, 'outerposition',[1 0 30 30]);
-ha = tight_subplot(1,2,0.1,0.25,[0.2 0.2]);
-
-    set(f,'CurrentAxes',ha(1))
-hold on
-plot(b_map.b_avg(ind_firn_line),T_map.T_avg(ind_firn_line),'x','Color',col(end,:),'LineWidth',1.5)
-[x, ind_sorted] = sort(T_map.T_avg(ind_firn_line));
-temp = b_map.b_avg(ind_firn_line);
-y=temp(ind_sorted);
-firn_line = fit(x,y,'exp1');
-plot(firn_line(x),x,'k','LineWidth',3)
-box on
-h_xlab = xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-axis tight
-ha(1).Position =   [0.07         0.1         0.2          0.25];
-title('Location of the firn layer boundary','FontSize',11)
-h_l = legend('Remotely-sensed','Idealized','Location','SouthEast');
-h_l.FontSize = 11;
-% legend boxoff
-
-set(f,'CurrentAxes',ha(2))
-ha(2).Position = [0.34         0.23         0.3          0.45];
-
-hold on
-
-% plotting the core derived FAC
-h_FAC = scatter3(metadata.b_avg, ...
-    metadata.T_avg,metadata.FAC10,...
-    100,col(end,:),'fill'); 
-
-hold on
-%     h_FL = plot3(accum_zerofirn, temp_zerofirn, ...
-%         FAC_nofirn*ones(size(temp_zerofirn)),...
-%         'x','Color',col(end,:),'LineWidth',2);
-%     alpha(h_FL,0.2);
-    T_extrap = [T_thresh-2:1:-2]';
-    h_IFL = plot3(firn_line(T_extrap),T_extrap+0.1, ...
-        FAC_nofirn*ones(size(T_extrap)),'Color','k','LineWidth',4);
-    
-% sf(abs(gridx-reshape(firn_line(gridy),size(gridy))) <50) = NaN;
-h_s2 = surf(gridx, gridy,FAC_fit_HA_low(gridx,gridy),0*gridy+3);
-alpha(h_s2, 0.02)
-h_s1 = surf(gridx, gridy,FAC_fit_HA_mid(gridx,gridy),0*gridy+4);
-alpha(h_s1, 0.05)
-
-h_s = surf(gridx, gridy,FAC_fit_HA_high(gridx,gridy)+0.01,0*gridy+2);
-alpha(h_s, 0.1)
-
-
-shading interp
-
-[~, h_c ]= contour3(gridx, gridy,FAC_fit_HA_high(gridx,gridy),10);
-[~, h_c1 ] = contour3(gridx, gridy, FAC_fit_HA_mid(gridx,gridy),11);
-[~, h_c2 ] = contour3(gridx, gridy, FAC_fit_HA_low(gridx,gridy),10);
-h_c.Color = 'b';
-h_c1.Color = 'r';
-h_c2.Color = 'g';
-h_c.LineWidth = 1.5;
-h_c1.LineWidth = 1.5;
-h_c2.LineWidth = 1.5;
-colormap('hsv')
-
-RMSE = std(metadata.FAC10);
-RMSE1 = std(metadata.FAC10-FAC_fit_HA_high(metadata.b_avg,metadata.T_avg));
-RMSE2 = std(metadata.FAC10-FAC_fit_HA_mid(metadata.b_avg,metadata.T_avg));
-RMSE3 = std(metadata.FAC10-FAC_fit_HA_low(metadata.b_avg,metadata.T_avg));
-
-title('c) High Accumulation Wet Snow Area');
-
-axis tight 
-    zlim([0 6])   
-ylim([min(x1)-2 max(x1)+2])
-xlim([min(x2)-10 max(x2)+10])
-
+T_FL_obs = T_map.T_avg(ind_firn_line);
+c_FL_obs = c_map.c_avg(ind_firn_line);
+% ind1 = [1305; 1335; 1271; 1165; 1265; 1425];
+ind1 = 1000:5:1400;
 if source_temp_accum == 2
-    ylim([min(x1)-2 max(x1)+7])
-    xlim([min(x2)-50 max(x2)+10])
-end
- box on
-view(ha(2),[-66 11]);
-
-h_leg = legend([h_FAC h_IFL h_c h_c1 h_c2],'FAC_{10} observations',...
-    'Idealized firn layer boundary',...
-    sprintf('\nUpper-range FAC_{10} estimate \n RMSD = %0.2f m^{3} m^{-2}\n',RMSE1),...
-    sprintf('\nMid-range FAC_{10} estimate \n RMSD = %0.2f m^{3} m^{-2}\n',RMSE2),...
-    sprintf('\nLower-range FAC_{10} estimate \n RMSD = %0.2f m^{3} m^{-2}\n',RMSE3),...
-    'Location','East','Interpreter','tex');
-h_leg.Position(1) = 0.65;
-h_leg.Position(2) = 0.3;
-set(gca,'XTickLabel',[' 800'; '    '; '1200'; '    '; '1600';]);
-%  title(sprintf('ME = %0.2f   RMSE = %0.2f',ME,RMSE))
-h_xlab = xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-h_xlab.Units = 'Normalized';
-h_xlab.Position = [1   -0.1         0];
-h_ylab = ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex');
-h_ylab.Position = [1200      -9      -1.6743];
-% Create arrow
-
-if source_temp_accum == 2
-    annotation(f,'arrow',[0.4 0.28],...
-        [0.28 0.25]);
+    ind1 = [1110; 1240;1330; 1050;1035; 1195];
+    c_max = 3000;
 else
-    annotation(f,'arrow',[0.4 0.28],...
-        [0.28 0.24]);
+    ind1 = [1320; 1225; 1365; 1390;1180; 1235];
+    c_max = 5000;
 end
-zlabel('FAC_{10} (m)','Interpreter','tex')
-print(f,sprintf('./Output/Extrapolation_HighAccumulationArea_%s',orig),'-dtiff','-r0')
+ind1=ind1';
 
-%% ===== Region 3: warm and low accumulation ===========
-disp('Selecting points in the warm & low accumulation area')
-metadata = metadata_save;
-ind = or(metadata.b_avg>accum_thresh,metadata.T_avg<T_thresh-1);
-metadata(ind,:) = [];
+PlottingSelectedFirnLinePoints(metadata, T_thresh, accum_thresh, ind1,...
+    poly_100, T_FL_obs, c_FL_obs,XX,YY,DSA,LAPA,HAPA,X_FL_obs,Y_FL_obs, ...
+    c_max, source_temp_accum, GL,Ice,Firn, orig, vis);
 
-% 3D exploration of accumulation and temperature control  
-f = figure('Visible', vis, 'outerposition',[1 0 20 30]);
-ha = tight_subplot(1,1,0.1,0.25,0.25);
-set(f,'CurrentAxes',ha(1))
-hold on
+T_FL_selec = T_FL_obs(ind1);
+c_FL_selec = c_FL_obs(ind1);
 
-    % plotting the core derived FAC
-%     scatter3(metadata.b_avg, ...
-%         metadata.T_avg,metadata.FAC10,...
-%         100,col(discretize(metadata.Year,time_bin),:),'fill') 
-
-xlim([min(metadata.b_avg)-2 max(metadata.b_avg)+10])
-ylim([min(metadata.T_avg)-1 max(metadata.T_avg)+4])
-
-     box on
-h_xlab = xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-
-ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-zlabel('FAC_{10} (m)','Interpreter','tex')
-    ind_binned = discretize(metadata.Year,time_bin);
-    
-    i =  6;
-    x = metadata.b_avg(ind_binned==i);
-    disp('Num points 2000-2009')
-    disp(length(x))
-    y = metadata.T_avg(ind_binned==i);
-    z = metadata.FAC10(ind_binned==i);
-    scatter3(x,y, z,...
-        100,col(6,:),'fill') 
- fprintf('\nUsing %i cores to build the LAWSA pre2010\n',size(z,1))
-   
-    xx = linspace(min(metadata.b_avg)-10,accum_thresh+10);
-    yy = linspace(T_thresh-5,max(metadata.T_avg)+5);
-
-%     [sf1, gridx, gridy] = gridfit(x,y,z, xx,yy,'smoothness',10);
-%     FAC_fit_WHA_pre2010 = @(x,y) interp2(xx,yy,sf1,x,y);
-
-
-    Eqn = sprintf(['max(0, a*x + ' ...
-        'b*min(y+%i,0) + c*max(y+%i,0) + ' ...
-        'd*min(y+%i,0) + e*max(y+%i,0) + f)'],...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*2/3),...
-        -(min(y)+ (max(y) - min(y))*2/3));
-  FAC_fit_WHA_pre2010 = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[Inf 0    0   0   0     Inf],...
-        'StartPoint',[0.45414        0.5029       0.72089      0.54005      0.15411      0.12192]);
-
-% mean(mean(SA_WHA_pre2010{ii}(gridx,gridy)))
-count = 0;
-while sqrt(mean((FAC_fit_WHA_pre2010(x,y)-z).^2))>1
-  FAC_fit_WHA_pre2010 = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[Inf 0    0   0   0     Inf]);
-    count = count+1;
-    disp(count)
-end
-%     Eqn = 'max(0, a*x + b*y +c*y^2 + d)';
-%   FAC_fit_WHA_pre2010 = fit([x, y],z,Eqn,...
-%         'Lower',[0     -Inf -Inf  -Inf],...
-%         'Upper',[Inf Inf  Inf Inf]);
-    xx = linspace(min(metadata.b_avg),accum_thresh+10);
-    yy = linspace(T_thresh-1,max(metadata.T_avg)+1);
-    [gridx, gridy] = meshgrid(xx,yy);
-    
-    h_s = surf(gridx, gridy,FAC_fit_WHA_pre2010(gridx, gridy) ,0*gridy+0.5);
-    alpha(h_s, 0.2)
-    
-    [~, h_c ]= contour3(gridx, gridy, FAC_fit_WHA_pre2010(gridx, gridy),15);
-    h_c.Color = 'b';
-    h_c.LineWidth = 1.5;
-RMSE1 = std(z- FAC_fit_WHA_pre2010(x,y));
-
-    i =  7;
-    x = metadata.b_avg(ind_binned==i);
-    disp('Num points 2010-2017')
-    disp(length(x))
-    y = metadata.T_avg(ind_binned==i);
-    z = metadata.FAC10(ind_binned==i);
-        scatter3(x,y, z,...
-        100,col(7,:),'fill') 
- fprintf('\nUsing %i cores to build the LAWSA post2010\n',size(z,1))
-
-%     [sf2, gridx, gridy] = gridfit(x,y,z, xx,yy,'smoothness',10);
-%     FAC_fit_WHA_post2010 = @(x,y) interp2(xx,yy,sf2,x,y);
-    Eqn = sprintf(['max(0, a*x + ' ...
-        'b*min(y+%i,0) + c*max(y+%i,0) + ' ...
-        'd*min(y+%i,0) + e*max(y+%i,0) + f)'],...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*2/3),...
-        -(min(y)+ (max(y) - min(y))*2/3));
-    FAC_fit_WHA_post2010 = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[Inf 0    0   0   0     Inf],...
-        'StartPoint',[0.45414        0.5029       0.72089      0.54005      0.15411      0.12192]);
-    [gridx, gridy] = meshgrid(xx,yy);
-%         Eqn = 'max(0, a*x + b*y + c)';
-%   FAC_fit_WHA_post2010 = fit([x, y],z,Eqn,...
-%         'Lower',[0     -Inf  -Inf],...
-%         'Upper',[Inf 0   0]);
-    h_s1 = surf(gridx, gridy, FAC_fit_WHA_post2010(gridx, gridy), 0*gridy+3);
-    shading interp
-    alpha(h_s1, 0.2)
-    [~, h_c1 ] = contour3(gridx, gridy, FAC_fit_WHA_post2010(gridx, gridy),15);
-    h_c1.Color = 'r';
-    h_c1.LineWidth = 1.5;
-    zlim([0 6])   
-        colormap('hsv')
-
-RMSE2 = std(z- FAC_fit_WHA_post2010(x,y));
-
-title('b) Low Accumulation Wet Snow Area');
-
-
-annotation(f,'textarrow', [0.5, 0.57], [0.67, 0.58])
-
-temp = {'$$     \widehat{FAC_{10}}$$ $$_{1997-2008}$$' ,['$$RMSD = ' sprintf('%0.2f',RMSE1) 'm^{3} m^{-2}$$'] };
-h_leg = text(1,1,temp,...
-    'Interpreter','Latex');
-h_leg.Units = 'Normalized';
-h_leg.Position(2) = 0.89;
-h_leg.Position(1) = 0.07;
-h_leg.FontSize = 13;
-h_leg.BackgroundColor = 'w';
-% h_leg.FitBoxToText = 'on';
-
-annotation(f,'textarrow', [0.47, 0.55], [0.58, 0.47])
-
-temp = {'$$     \widehat{FAC_{10}}$$ $$_{2011-2017}$$' ,['$$RMSD = ' sprintf('%0.2f',RMSE2) 'm^{3} m^{-2}$$'] };
-h_leg2 = text(1,1,temp,...
-    'Interpreter','Latex');
-h_leg2.Units = 'Normalized';
-h_leg2.Position(2) = 0.73;
-h_leg2.Position(1) = 0.07;
-h_leg2.FontSize = 13;
-h_leg2.BackgroundColor = 'w';
-% h_leg.FitBoxToText = 'on';
-view(gca,[-95 5]);
-
-print(f,sprintf('./Output/Warm_LowAccumulationArea_%s',orig),'-dtiff')
-
-%% ============= All regions ==================
+%% ============= Empirical function for all regions ==================
 disp('Outlook for all regions')
 metadata = metadata_save;
 
+FAC_nofirn = 0;
+
 % 3D exploration of accumulation and temperature control
     % Defining the points over which FAC will be extrapolated
-    b_extrap = linspace(0,5000,100);
-    T_extrap = linspace(-40, -2, 100);
-    gridx  =repmat(b_extrap,length(T_extrap),1);
-    gridy = repmat(T_extrap',1,length(b_extrap));
+    c_extrap = linspace(0,5000,500);
+    T_extrap = linspace(-50, -2, 500);
+   
+    y_all = [metadata.c_avg; c_FL_selec];
+    x_all = [metadata.T_avg; T_FL_selec];
+    z_all = [metadata.FAC10; FAC_nofirn*ones(size(T_FL_selec))];
+    year_all = [metadata.Year; 2017*ones(size(T_FL_selec))];
+    
+    smoothness = 1;
 
-    % Values of FAC derived Naborro Herring equation at these points
-    FAC_NH = FAC_NH_func(gridx,gridy,280);
+    % Fitting function for the 1998-2008 period
+    % here we exclude all the measurements after 2010 and before 1998
+    cond1 = ((x_all > T_thresh) + (z_all~=FAC_nofirn) + or(year_all>=2010,year_all<1998)) ~= 3;
+    x1 = x_all(cond1);
+    y1 = y_all(cond1);
+    z1 = z_all(cond1);
+
+    %     year1 = year_all(cond1);
+    [FAC_fit_all_pre2010, ~, ~] = gridfit(x1, y1, z1, T_extrap, c_extrap,'smoothness',smoothness);
+        
+    % here we exclude all the measurements in the LAPA before 2010
+    cond2 = ((y_all < accum_thresh) +...
+        (x_all>T_thresh) + ...
+        (z_all~=FAC_nofirn) + (year_all<2010)) ~= 4;
+    cond2(and(year_all == 1998, y_all > accum_thresh)) = 0;
+    x2 = x_all(cond2);
+    y2 = y_all(cond2);
+    z2 = z_all(cond2);
+%     year2 = year_all(cond1);
+    [FAC_fit_all_post2010, gridx, gridy] = gridfit(x2, y2,z2, T_extrap, c_extrap,'smoothness',smoothness);
+
+    % Values of FAC derived from our empirical function for DSA
+    FAC_DSA_grid = FAC_fit_DSA(gridx,gridx);
     % FAC_BV = FAC_BV_func(bb,TT,280,1,-5);
 
-    % Selection of the point used for curve fitting 
-FAC_fit_all_pre2010_mid = FAC_fit_CA(gridx, gridy);
-FAC_fit_all_post2010_mid = FAC_fit_CA(gridx, gridy);
-FAC_fit_all_spread = 0* gridy; 
+ind_in_firn = reshape(inpoly([gridx(:) gridy(:)],(poly_100)),size(gridx));
+FAC_fit_all_pre2010 = min(FAC_fit_all_pre2010, FAC_DSA_grid);
+FAC_fit_all_pre2010(gridx<T_thresh) = FAC_DSA_grid(gridx<T_thresh);
+FAC_fit_all_pre2010(FAC_fit_all_pre2010<0) = 0;
 
-FAC_fit_all_spread(and(gridy>T_thresh,gridx>accum_thresh)) =  FAC_fit_HA_high(gridx(and(gridy>T_thresh,gridx>accum_thresh)), gridy(and(gridy>T_thresh,gridx>accum_thresh)))...
-    - FAC_fit_HA_low(gridx(and(gridy>T_thresh,gridx>accum_thresh)), gridy(and(gridy>T_thresh,gridx>accum_thresh)));
-
-
-FAC_fit_all_post2010_mid(and(gridy>T_thresh,gridx>accum_thresh)) =  FAC_fit_HA_mid(gridx(and(gridy>T_thresh,gridx>accum_thresh)), gridy(and(gridy>T_thresh,gridx>accum_thresh)));
-
-FAC_fit_all_pre2010_mid(and(gridy>=T_thresh,gridx<=accum_thresh)) =  FAC_fit_WHA_pre2010(gridx(and(gridy>=T_thresh,gridx<=accum_thresh)), gridy(and(gridy>=T_thresh,gridx<=accum_thresh)));
-FAC_fit_all_post2010_mid(and(gridy>=T_thresh,gridx<=accum_thresh)) =  FAC_fit_WHA_post2010(gridx(and(gridy>=T_thresh,gridx<=accum_thresh)), gridy(and(gridy>=T_thresh,gridx<=accum_thresh)));
-
+FAC_fit_all_post2010 = min(FAC_fit_all_post2010,FAC_DSA_grid);
+FAC_fit_all_post2010(gridx<T_thresh) = FAC_DSA_grid(gridx<T_thresh);
+FAC_fit_all_post2010(FAC_fit_all_post2010<0) = 0;
 
 % creating the function
-FAC_bav_mid_past = @(x,y) interp2(gridx,gridy,FAC_fit_all_pre2010_mid,x,y);
-FAC_bav_spread = @(x,y) interp2(gridx,gridy,FAC_fit_all_spread,x,y);
-FAC_bav_mid_pres = @(x,y) interp2(gridx,gridy,FAC_fit_all_post2010_mid,x,y);
+FAC10_98_08_func = @(x,y) interp2(gridx,gridy,FAC_fit_all_pre2010,x,y);
+FAC10_10_17_func = @(x,y) interp2(gridx,gridy,FAC_fit_all_post2010,x,y);
 
-ind_in_firn = reshape(inpoly([gridx(:) gridy(:)],fliplr(poly_100)),size(gridx));
-FAC_fit_all_spread(~ind_in_firn) = NaN;
-FAC_fit_all_pre2010_mid(~ind_in_firn) = NaN;
-FAC_fit_all_spread(~ind_in_firn) = NaN;
-FAC_fit_all_post2010_mid(~ind_in_firn) = NaN;
-FAC_fit_all_pre2010_mid(and(gridy>T_thresh,gridx>accum_thresh)) =  NaN;
+% 3D plotting
+PlottingAllRegions_3D(metadata,gridx, gridy, FAC_fit_all_post2010,...
+    FAC_fit_all_pre2010, x1, y1, z1, x2, y2, z2, ind_in_firn, vis,orig)
 
-FAC_fit_all_post2010_high = FAC_fit_all_post2010_mid;
-FAC_fit_all_post2010_low = FAC_fit_all_post2010_mid;
-FAC_fit_all_post2010_high(and(gridy>T_thresh,gridx>accum_thresh)) =  FAC_fit_HA_high(gridx(and(gridy>T_thresh,gridx>accum_thresh)), gridy(and(gridy>T_thresh,gridx>accum_thresh)));
-FAC_fit_all_post2010_low(and(gridy>T_thresh,gridx>accum_thresh)) =  FAC_fit_HA_low(gridx(and(gridy>T_thresh,gridx>accum_thresh)), gridy(and(gridy>T_thresh,gridx>accum_thresh)));
-FAC_bav_high_pres = @(x,y) interp2(gridx,gridy,FAC_fit_all_post2010_high,x,y);
-FAC_bav_low_pres = @(x,y) interp2(gridx,gridy,FAC_fit_all_post2010_low,x,y);
-
-% plotting
-for i = 1:2
-    f = figure('Visible', vis, 'outerposition',[1 0 20 30]);
-    ha = tight_subplot(1,1,0.1,0.25,0.25);
-    set(f,'CurrentAxes',ha(1))
-    hold on
-
-        %col(end,:),'fill')
-        % plotting the firn line-dervied FAC
-        scatter3(accum_zerofirn, temp_zerofirn, ...
-            FAC_nofirn*ones(size(temp_zerofirn)),...
-            10,col(end,:),'fill')
-        ind_binned = discretize(metadata.Year,time_bin);
-
-        if i == 1
-            % plotting the core derived FAC
-            scatter3(metadata.b_avg(metadata.Year<2010), ...
-            metadata.T_avg(metadata.Year<2010),metadata.FAC10(metadata.Year<2010),...
-            100,col(discretize(metadata.Year(metadata.Year<2010),time_bin),:),'fill') 
-
-%             h_s = surf(gridx, gridy,FAC_fit_all_spread,0*gridx);
-%             [~, h_c ]= contour3(gridx, gridy,FAC_fit_all_spread,15);
-
-            h_s2 = surf(gridx, gridy,FAC_fit_all_pre2010_mid,0*gridx+1);
-            [~, h_c2 ]= contour3(gridx, gridy,FAC_fit_all_pre2010_mid ,15);
-        else
-            % plotting the core derived FAC
-            scatter3(metadata.b_avg(or(metadata.Year>=2010,metadata.T_avg<T_thresh)), ...
-            metadata.T_avg(or(metadata.Year>=2010,metadata.T_avg<T_thresh)),...
-            metadata.FAC10(or(metadata.Year>=2010,metadata.T_avg<T_thresh)),...
-            100,col(discretize(metadata.Year(or(metadata.Year>=2010,metadata.T_avg<T_thresh)),time_bin),:),'fill') 
-
-%             h_s = surf(gridx, gridy,FAC_fit_all_spread,0*gridx);
-%             [~, h_c ]= contour3(gridx, gridy,FAC_fit_all_spread,15);
-
-            h_s2 = surf(gridx, gridy,FAC_fit_all_post2010_mid,0*gridx+1);
-            [~, h_c2 ]= contour3(gridx, gridy,FAC_fit_all_post2010_mid ,15);
-        end
-        alpha(h_s2, 0.2)
-        alpha(h_s, 0.2)
-        h_c.Color = 'b';
-        h_c.LineWidth = 1.5;
-        h_c2.Color = 'r';
-        h_c2.LineWidth = 1.5;
-        shading interp
-        colormap hsv
-%         zlim([0 7])
-    xlim([-2 2500])
-%     ylim([min(metadata.T_avg)-1 max(metadata.T_avg)+4])
-    box on
-    xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-    ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-    zlabel('FAC_{10} (m)','Interpreter','tex')
-    view(gca,[-103 15.4]);
-end
+% 2d plots
+PlottingAllRegions_2D(metadata,gridx, gridy, FAC10_98_08_func,...
+    FAC10_10_17_func, poly_100, T_thresh,accum_thresh, x1, y1, z1, x2, y2, z2, vis,orig)
 
 %%  Applying on the T_avg map 
 
-% ind2 =  and(b_raster<accum_thresh,~isnan(T_raster));
-% T_raster(~ind2) = NaN;
-b_raster(isnan(T_raster)) = NaN;
-b_raster(T_raster<-60) = NaN;
+c_raster(isnan(T_raster)) = NaN;
+c_raster(T_raster<-60) = NaN;
 T_raster(T_raster<-60) = NaN;
    
-FAC_10_map = {};
-            h_CA_bis= {};
-            h_WHA_bis= {};
-            h_WLA_bis= {};
+FAC10_map = {};
+h_CA_bis= {};
+h_WHA_bis= {};
+h_WLA_bis= {};
+
     % pre 2010
-    FAC_10_map{1} = max(zeros(size(T_raster)), FAC_bav_mid_past(b_raster,T_raster));
+    FAC10_map{1} = max(zeros(size(T_raster)), FAC10_98_08_func(T_raster, c_raster));
     %post 2010
-    FAC_10_map{2} = max(zeros(size(T_raster)), FAC_bav_mid_pres(b_raster,T_raster));
+    FAC10_map{2} = max(zeros(size(T_raster)), FAC10_10_17_func(T_raster, c_raster));
+%     FAC_10_map{2,2} = max(zeros(size(T_raster)), FAC_bav_spread(c_raster,T_raster));
     
-%     FAC_10_map{2,2} = max(zeros(size(T_raster)), FAC_bav_spread(b_raster,T_raster));
+    FAC10_map{1}(isnan(T_raster))=NaN;
+    FAC10_map{2}(isnan(T_raster))=NaN;
+    FAC10_map{1}(and(T_raster>T_thresh, c_raster>accum_thresh))=NaN;   
     
-    FAC_10_map{1}(isnan(T_raster))=NaN;
-    FAC_10_map{1}(and(T_raster>T_thresh, b_raster>accum_thresh))=NaN;
-    FAC_10_map{2}(isnan(T_raster))=NaN;
+    ind_met_DSA = metadata.T_avg<T_thresh;
+    ind_met_LAPA_post_2010 = and( and(metadata.T_avg>T_thresh, ...
+        metadata.c_avg<accum_thresh),...
+        metadata.Year>=2010);
+    ind_met_LAPA_pre_2010 = and(and( and(metadata.T_avg>T_thresh, ...
+        metadata.c_avg<accum_thresh),...
+        metadata.Year<2010),...
+        metadata.Year>=1998);
+    ind_met_HAPA_post_2010 = and( and(metadata.T_avg>T_thresh, ...
+        metadata.c_avg>=accum_thresh),...
+        metadata.Year>=2010);
     
-    FAC_10_map{1}(FAC_10_map{1,1}==0)=NaN;
-    FAC_10_map{2}(isnan(T_raster))=NaN;
+    metadata.FAC10_predict = NaN * metadata.FAC10;
+    metadata.FAC10_predict(ind_met_DSA) = ...
+        FAC10_98_08_func(metadata.T_avg(ind_met_DSA),...
+        metadata.c_avg(ind_met_DSA));
+    metadata.FAC10_predict(ind_met_LAPA_post_2010) = ...
+        FAC10_10_17_func(metadata.T_avg(ind_met_LAPA_post_2010),...
+        metadata.c_avg(ind_met_LAPA_post_2010));
+    metadata.FAC10_predict(ind_met_HAPA_post_2010) = ...
+        FAC10_10_17_func(metadata.T_avg(ind_met_HAPA_post_2010), ...
+        metadata.c_avg(ind_met_HAPA_post_2010));
+    metadata.FAC10_predict(ind_met_LAPA_pre_2010) =  ...
+        FAC10_98_08_func(metadata.T_avg(ind_met_LAPA_pre_2010), ...
+        metadata.c_avg(ind_met_LAPA_pre_2010));
     
-    for i =1 : size(metadata,1)
-        if or(metadata.T_avg(i) <= T_thresh, metadata.b_avg(i) > accum_thresh)
-            metadata.FAC10_predict(i) = FAC_bav_mid_pres(metadata.b_avg(i),metadata.T_avg(i));
-        elseif metadata.b_avg(i) <= accum_thresh
-            if metadata.Year(i) <= 2010
-                metadata.FAC10_predict(i) =  FAC_bav_mid_past(metadata.b_avg(i),metadata.T_avg(i));
-            else
-                metadata.FAC10_predict(i) = FAC_bav_mid_pres(metadata.b_avg(i),metadata.T_avg(i));
-            end
-        end
-    end
     metadata.residual = metadata.FAC10_predict-metadata.FAC10;
+    bias(1) = mean(metadata.residual(ind_met_DSA));
+    RMSD(1) = sqrt(mean(metadata.residual(ind_met_DSA).^2));
+    bias(2) = mean(metadata.residual(ind_met_LAPA_pre_2010));
+    RMSD(2) = sqrt(mean(metadata.residual(ind_met_LAPA_pre_2010).^2));
+    bias(3) = mean(metadata.residual(ind_met_LAPA_post_2010));
+    RMSD(3) = sqrt(mean(metadata.residual(ind_met_LAPA_post_2010).^2));
+    bias(4) = mean(metadata.residual(ind_met_HAPA_post_2010));
+    RMSD(4) = sqrt(mean(metadata.residual(ind_met_HAPA_post_2010).^2));
+    N(1) = sum(ind_met_DSA);
+    N(2) = sum(ind_met_LAPA_pre_2010);
+    N(3) = sum(ind_met_LAPA_post_2010);
+    N(4) = sum(ind_met_HAPA_post_2010);
 
-    if source_temp_accum == 1
-        FAC_10_map_Box13 = FAC_10_map;
-        FAC_10_spread_Box13 = FAC_bav_spread(b_raster,T_raster);
-        metadata_Box13 = metadata;
-        R_Box13 = R;
-        save ('./Output/Box13_result.mat','FAC_10_map_Box13','metadata_Box13','R_Box13','FAC_10_spread_Box13') ;
-        load('./Output/MAR_result.mat')
-    else
-        FAC_10_map_MAR = FAC_10_map;
-        metadata_MAR = metadata;
-        FAC_10_spread_MAR = FAC_bav_spread(b_raster,T_raster);
+    summary_residuals = array2table([bias; RMSD; N]);
+    summary_residuals.Properties.VariableNames = ...
+        {'DSA', 'LAPA_pre_2010','LAPA_post_2010', 'HAPA'};
+    summary_residuals.Properties.RowNames = {'bias', 'RMSD','N'};
+      writetable(summary_residuals,...
+    sprintf('./Output/Summary_residual_%s.csv',orig),'Delimiter',';','WriteRowNames',true)
 
-        R_MAR = R;
-        save('./Output/MAR_result.mat','FAC_10_map_MAR','metadata_MAR','R_MAR','FAC_10_spread_MAR') 
-        load('./Output/Box13_result.mat') 
-    end
         metadata_save = metadata;
         I_box = geotiffinfo('mean_temperature_box13_3413_firn.tif'); 
         [x_map,y_map]=pixcenters(I_box);
@@ -1134,14 +610,7 @@ FAC_10_map = {};
         [x_map,y_map]=pixcenters(I_MAR);
         XX_mar = repmat(x_map,length(y_map),1);
         YY_mar = repmat(y_map',1,length(x_map));
-        
-        for i = 1:2
-                FAC_10_map_MAR_resampled{i} = ...
-                    griddata(XX_mar,YY_mar,FAC_10_map_MAR{i},XX_box,YY_box);
-                FAC_10_spread_MAR_resampled = ...
-                    griddata(XX_mar,YY_mar,FAC_10_spread_MAR,XX_box,YY_box);
-        end
-        
+                
 if source_temp_accum==1
     XX = XX_box;
     YY = YY_box;
@@ -1151,762 +620,427 @@ else
 end
 format BANK
 
-%% Plotting
-        f=figure('Units','Normalized','outerposition',[0 0 1 0.8]);
-        ha =tight_subplot(1,4,-0.15,[0.03 0.17],[0.01 0.11]);
+% Plotting FAC10 maps
+ [FAC10_change] = Plotting_FAC10_maps (metadata, accum_thresh, T_thresh, ...
+    XX,YY, FAC10_map, DSA,LAPA,HAPA,GL,Ice,Firn, orig, vis);
 
-                set(f,'CurrentAxes',ha(1))
-                hold on
+%% Uncertainty analysis 
 
-                PlotBackground(GL,Ice,Firn);
-
-                temp = FAC_10_map{1};
-                temp(isnan(DSA)) = NaN;
-                h_map = pcolor(XX,YY,temp);
-                h_map.LineStyle = 'none';
-
-                colbar =contourcmap('toh',0:0.5:6,'colorbar','on');
-                ylabel(colbar,'FAC_{10} (m)','Interpreter','tex');
-                   colbar.Position(2) = 2;
-
-                [~, ~] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',1);
-
-                met = metadata(metadata.T_avg<=T_thresh,:);
-                plot(met.X, met.Y ,'ok','MarkerSize',5,'MarkerFaceColor','w'); 
-
-                xlim(1.0e+05 *[-6.2164    8.4827])
-                ylim(1.0e+06 *[-3.3439   -0.6732])
-
-                h_title = title('         DSA\newline    1953-2017','Interpreter','tex');
-                h_title.FontSize = 14;
-                h_title.Units = 'Normalized';
-                h_title.Position = [0.45          1.01             0];
-                set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-                count = count+1;
-                daspect( [1 1 1])
-                
-
-            set(f,'CurrentAxes',ha(2))
-                hold on
-
-                PlotBackground(GL,Ice,Firn);
-                temp = FAC_10_map{1};
-                temp(isnan(LAWSA)) = NaN;
-                h_map = pcolor(XX,YY,temp);
-                h_map.LineStyle = 'none';
-
-                colbar =contourcmap('toh',0:0.5:6,'colorbar','on');
-                ylabel(colbar,'FAC_{10} (m)','Interpreter','tex');
-                   colbar.Position(2) = 2;
-
-                [~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',1);
-                [~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',1);
-                [~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',1); 
-
-                met = metadata(and(ismember(metadata.Year,time_bin(6)+0.5:time_bin(7)+0.5),metadata.b_avg<accum_thresh),:);
-                met = met(met.T_avg>T_thresh,:);
-                plot(met.X, met.Y ,'ok','MarkerSize',5,'MarkerFaceColor','w'); 
-
-                xlim(1.0e+05 *[-6.2164    8.4827])
-                ylim(1.0e+06 *[-3.3439   -0.6732])
-
-                h_title = title('          LAWSA\newline         1997-2008','Interpreter','tex');
-                h_title.FontSize = 14;
-                                h_title.Units = 'Normalized';
-                h_title.Position = [0.4          1.01             0];
-                set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-                count = count+1;
-                daspect( [1 1 1])
-
-     set(f,'CurrentAxes',ha(3))
-                hold on
-              PlotBackground(GL,Ice,Firn);
-                temp = FAC_10_map{2};
-                temp(~or(~isnan(LAWSA),~isnan(HAWSA))) = NaN;
-                h_map = pcolor(XX,YY,temp);
-                h_map.LineStyle = 'none';
-                
-                colbar =contourcmap('toh',0:0.5:6,'colorbar','on');
-                ylabel(colbar,'FAC_{10} (m^3 m^{-2})','Interpreter','tex');
-                colbar.Position(1) = 0.81;
-                colbar.FontSize = 20;
-
-                [~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',1);
-                [~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',1);
-                [~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',1); 
-
-                met = metadata(or(and(ismember(metadata.Year,2012:2017),metadata.T_avg>T_thresh),...
-                    metadata.b_avg>accum_thresh),:);
-                plot(met.X, met.Y ,'ok','MarkerSize',5,'MarkerFaceColor','w'); 
-
-                xlim(1.0e+05 *[-6.2164    8.4827])
-                ylim(1.0e+06 *[-3.3439   -0.6732])
-
-                h_title = title(['LAWSA 2011-2017',...
-                    '\newline             & \newlineHAWSA 2010-2017'],...
-                    'Interpreter','tex');
-                h_title.FontSize = 14;
-                set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-                daspect( [1 1 1])
-               
-annotation(f,'textbox',...
-    [0.08 0.88 0.04 0.05],...
-    'String','a)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-annotation(f,'textbox',...
-    [0.27 0.88 0.04 0.05],...
-    'String','b)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-annotation(f,'textbox',...
-    [0.43 0.91 0.04 0.05],...
-    'String','c)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-
-% Mapping evolution of pore space
-
-set(f,'CurrentAxes',ha(4))
-    ps_change_10m = FAC_10_map{2}-FAC_10_map{1};
-%     ps_change_10m(FAC_10_map{1,1} == 0) = NaN;
-        hold on
-            PlotBackground(GL,Ice,Firn);
-disp('Spatial average of FAC10 change')   
-temp2 = ps_change_10m;
-temp2(isnan(LAWSA)) = NaN;
-disp(nanmean(nanmean(temp2)))
-
-disp('Max FAC10 change')
-disp(min(min(temp2)))
-    h_map = pcolor(XX,YY,ps_change_10m);
-    h_map.LineStyle = 'none';
-    daspect( [1 1 1])
-
-    colbar2 =contourcmap('tej2',-3.6:0.2:0,'colorbar','on');
-    ylabel(colbar2,'\Delta FAC_{10} (m^3 m^{-2})','Interpreter','tex');
-colbar2.FontSize = 20;
-    xlim(1.0e+05 *[-4    1.5])
-    ylim(1.0e+06 *[-3.   -1.4])
-    h_title = title('                LAWSA \newline2011-2017 minus 1997-2008','Interpreter','tex');
-                                h_title.Units = 'Normalized';
-                h_title.Position = [0.45          1.03             0];
-    box on
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',2);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-
-            set(gca,'XTickLabel','','YTickLabel','','TickLength',[0 0],'layer','top')
-annotation(f,'textbox',...
-    [0.66 0.92 0.04 0.05],...
-    'String','d)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-ha(4).Position(1) = 0.62;
-colbar.Position(1)=0.62;
-colbar2.Position(1)=0.83;
-colormap(ha(1),'toh')
-colormap(ha(2),'toh')
-colormap(ha(3),'toh')
-colormap(colbar,'toh')
-colormap(ha(4),'tej2')
-            for i=2:2:size(colbar2.YTickLabel,1)
-            colbar2.YTickLabel(i,:) = '    ';
-            end
-    print(f,sprintf('Output/FAC_map_%s',orig),'-dtiff')
-
-%% Uncertainty analysis LAWSA
-
-disp('Sensitivity analysis in the LAWSA')
+disp('Sensitivity analysis')
 close all
-plotting =0;
-SA_LAWSA_post2010 = {};
-SA_LAWSA_pre2010 = {};
 
+plotting = 0;
+F = {};
+SA_post2010_func = {};
+SA_pre2010_func = {};
+
+c_extrap = linspace(0,5000,100);
+T_extrap = linspace(-50, -2, 100);
+
+ind_LAPA_pre2010 =  find(((metadata.c_avg < accum_thresh) + ...
+    (metadata.T_avg > T_thresh) + (metadata.Year<2010)) == 3);
+
+ind_LAPA_post2010 =  find(((metadata.c_avg < accum_thresh) + ...
+    (metadata.T_avg > T_thresh) + (metadata.Year>=2010)) == 3);
+    
 for ii = 1:1000
+%         fprintf('%i %%\n',ii)
+
     if mod(ii,100) == 0
         fprintf('%i %%\n',ii/10)
     end
-metadata = metadata_save;
-ind = or(metadata.b_avg>accum_thresh,metadata.T_avg<T_thresh-1);
-metadata(ind,:) = [];
-    ind_binned = discretize(metadata.Year,time_bin);
-
-    ind = find(ind_binned==6);
-        x = metadata.b_avg(ind);
-        
-    ind_remove  = unidrnd(length(x),4,1);
-    metadata(ind(ind_remove),:) = [];
     
-    ind_binned = discretize(metadata.Year,time_bin);
-    ind = find(ind_binned==7);
-        x = metadata.b_avg(ind);
+    met = metadata;
 
-    ind_remove  = unidrnd(length(x),4,1);
-    metadata(ind(ind_remove),:) = [];
+    % Factors to be modified
+    FAC_nofirn = rand(1);
+    smoothness = rand(1)+0.5;
+    perturb_FL = normrnd(0,1);  % Simulate heights;    
     
-    ind_binned = discretize(metadata.Year,time_bin);
+    % We remove 4 from the LAPA in each time period
+    ind_rand1 = randi([1 length(ind_LAPA_pre2010)],1,4)';
+    ind_rand2 = randi([1 length(ind_LAPA_post2010)],1,4)';
+    met([ind_LAPA_pre2010(ind_rand1); ind_LAPA_post2010(ind_rand2)],:) = [];
 
-    % 3D exploration of accumulation and temperature control
+    % calculating points to be fitted  
+    y_all = [met.c_avg; c_FL_selec];
+    x_all = [met.T_avg; T_FL_selec + perturb_FL];
+    z_all = [met.FAC10; FAC_nofirn*ones(size(T_FL_selec))];
+    year_all = [met.Year; 2017*ones(size(T_FL_selec))];
+
+    cond1 = ((y_all < accum_thresh) + (x_all > T_thresh) + (z_all~=FAC_nofirn) + (year_all>=2010)) ~= 4;
+    x1 = x_all(cond1);
+    y1 = y_all(cond1);
+    z1 = z_all(cond1);
+    cond2 = ((y_all < accum_thresh) + (x_all>T_thresh) + (z_all~=FAC_nofirn) + (year_all<2010)) ~= 4;
+    x2 = x_all(cond2);
+    y2 = y_all(cond2);
+    z2 = z_all(cond2);
     
-    i =  6;
-    x = metadata.b_avg(ind_binned==i);
-    y = metadata.T_avg(ind_binned==i);
-    z = metadata.FAC10(ind_binned==i);
+    % Defining the points over which FAC will be extrapolated
 
-    
-    xx = linspace(min(metadata.b_avg),accum_thresh);
-    yy = linspace(T_thresh,max(metadata.T_avg)+10);
+    %     year1 = year_all(cond1);
+    [SA_pre2010, ~, ~] = gridfit(x1, y1, z1, T_extrap, c_extrap,'smoothness',smoothness);
 
-    Eqn = sprintf(['max(0, a*x + ' ...
-        'b*min(y+%i,0) + c*max(y+%i,0) + ' ...
-        'd*min(y+%i,0) + e*max(y+%i,0) + f)'],...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*2/3),...
-        -(min(y)+ (max(y) - min(y))*2/3));
-    SA_LAWSA_pre2010{ii} = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[Inf 0    0   0   0     Inf],...
-        'StartPoint',[0.45414        0.5029       0.72089      0.54005      0.15411      0.12192]);
+    %     year2 = year_all(cond1);
+    [SA_post2010, gridx, gridy] = gridfit(x2, y2,z2, T_extrap, c_extrap,'smoothness',smoothness);
+    FAC_DSA_grid = FAC_fit_DSA(gridx,gridx);
+    ind_in_firn = reshape(inpoly([gridx(:) gridy(:)],(poly_100)),size(gridx));
 
-    count = 0;
+    SA_pre2010 = min(SA_pre2010,FAC_DSA_grid);
+    SA_pre2010(gridx<T_thresh) = FAC_DSA_grid(gridx<T_thresh);
+    SA_pre2010(SA_pre2010<0) = 0;
 
-while sqrt(mean((SA_LAWSA_pre2010{ii}(x,y)-z).^2))>1
-     SA_LAWSA_pre2010{ii} = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[Inf 0    0   0   0     Inf]);
-    count = count+1;
+    SA_post2010 = min(SA_post2010,FAC_DSA_grid);
+    SA_post2010(gridx<T_thresh) = FAC_DSA_grid(gridx<T_thresh);
+    SA_post2010(SA_post2010<0) = 0;
+
+   if plotting == 1
+       PlottingAllRegions_3D(met,gridx, gridy, SA_post2010,...
+            SA_pre2010,  x1, y1, z1, x2, y2, z2, ind_in_firn, vis,orig);
+ 
+      F{ii} = getframe(gcf) ;
+      drawnow
+   end
+   
+    SA_pre2010_func{ii} = @(x,y) interp2(gridx,gridy,SA_pre2010,x,y);
+    SA_post2010_func{ii} = @(x,y) interp2(gridx,gridy,SA_post2010,x,y);
 end
 
-[gridx, gridy] = meshgrid(xx,yy);
-    
-    if plotting
-        f = figure('Visible', vis, 'outerposition',[1 0 20 20]);
-        ha = tight_subplot(1,1,0.1,0.25,0.25);
-        set(f,'CurrentAxes',ha(1))
-        hold on
+    % create the video writer with 1 fps
+      writerObj = VideoWriter('Output/SensitivityAnalysis.avi');
+      writerObj.FrameRate = 10;
+      % set the seconds per image
 
-        xlim([min(metadata.b_avg)-2 max(metadata.b_avg)+10])
-        ylim([min(metadata.T_avg)-1 max(metadata.T_avg)+4])
-
-             box on
-        h_xlab = xlabel('$\mathrm{\overline{\dot{b}}  \: (mm w.eq. yr^{-1})}$','Interpreter','latex') ;
-
-        ylabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-        zlabel('FAC_{10} (m)','Interpreter','tex')
-        scatter3(x,y, z,...
-            100,col(6,:),'fill') 
-        h_s = surf(gridx, gridy,SA_LAWSA_pre2010{ii}(gridx, gridy) ,0*gridy+0.5);
-        alpha(h_s, 0.2)
-
-        [~, h_c ]= contour3(gridx, gridy, SA_LAWSA_pre2010{ii}(gridx, gridy),15);
-        h_c.Color = 'b';
-        h_c.LineWidth = 1.5;
-        view(gca,[-103 15.4]);
-
-end
-    i =  7;
-    x = metadata.b_avg(ind_binned==i);
-
-    y = metadata.T_avg(ind_binned==i);
-    z = metadata.FAC10(ind_binned==i);
-
-    Eqn = sprintf(['max(0, a*x + ' ...
-        'b*min(y+%0.2f,0) + c*max(y+%0.2f,0) + ' ...
-        'd*min(y+%0.2f,0) + e*max(y+%0.2f,0) + f)'],...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*1/3),...
-        -(min(y)+ (max(y) - min(y))*2/3),...
-        -(min(y)+ (max(y) - min(y))*2/3));
-    SA_LAWSA_post2010{ii} = fit([x, y],z,Eqn,...
-        'Lower',[0     -Inf  -Inf   -Inf  -Inf -Inf],...
-        'Upper',[0.003 0    0   0   0     Inf],...
-        'StartPoint',[0.45414        0.5029       0.72089      0.54005      0.15411      0.12192]);
-    [gridx, gridy] = meshgrid(xx,yy);
-    
-    if plotting
-        scatter3(x,y, z,...
-        100,col(7,:),'fill') 
-            h_s1 = surf(gridx, gridy, SA_LAWSA_post2010{ii}(gridx, gridy), 0*gridy+3);
-            shading interp
-            alpha(h_s1, 0.2)
-            [~, h_c1 ] = contour3(gridx, gridy, SA_LAWSA_post2010{ii}(gridx, gridy),15);
-            h_c1.Color = 'r';
-            h_c1.LineWidth = 1.5;
-            zlim([0 7])   
-               colormap('hsv')
-
-        view(gca,[-103 15.4]);
-        pause
+    % open the video writer
+    open(writerObj);
+    % write the frames to the video
+    for i=1:length(F)
+        % conRGB('vert') the image to a frame
+        frame = F{i} ;    
+        writeVideo(writerObj, frame);
     end
+    % close the writer object
+    close(writerObj);
+    
+XX_LAPA = T_raster;
+YY_LAPA = c_raster;
 
-end
-
-XX_LAWSA =b_raster;
-XX_LAWSA(LAWSA~=1) = NaN;
-YY_LAWSA =T_raster;
-YY_LAWSA(LAWSA~=1) = NaN;
-
-M = NaN([size(b_raster),length( FAC_fit_WHA_post2010)]);
-for ii = 1:length( SA_LAWSA_post2010)
-    M(:,:,ii) =SA_LAWSA_post2010{ii}(XX_LAWSA, YY_LAWSA);
+M = NaN([size(c_raster),length(SA_post2010_func)]);
+for ii = 1:length(SA_post2010_func)
+    M(:,:,ii) =SA_post2010_func{ii}(XX_LAPA, YY_LAPA);
 end
 
 M_mean1 = mean(M,3);
-Uncertainty_post2010_LAWSA = std(M,0,3);
+Uncertainty_post2010 = std(M,0,3);
 
-M = NaN([size(b_raster),length( FAC_fit_WHA_pre2010)]);
-for ii = 1:length(SA_LAWSA_pre2010)
-    M(:,:,ii) =SA_LAWSA_pre2010{ii}(XX_LAWSA, YY_LAWSA);
+M = NaN([size(c_raster),length(SA_pre2010_func )]);
+for ii = 1:length(SA_pre2010_func)
+    M(:,:,ii) =SA_pre2010_func{ii}(XX_LAPA, YY_LAPA);
 end
-
 M_mean = mean(M,3);
-Uncertainty_pre2010_LAWSA = std(M,0,3);
+Uncertainty_pre2010 = std(M,0,3);
 
-figure('Visible',vis)
-subplot(1,2,1)
-surf(XX,YY,Uncertainty_pre2010_LAWSA)
-shading interp
-colorbar
-title('Uncertainty in the LAWSA (1997-2008)')
-
-subplot(1,2,2)
-surf(XX,YY,Uncertainty_post2010_LAWSA)
-shading interp
-colorbar
-title('Uncertainty in the LAWSA (2011-2017)')
+clearvars writerObj F met gridx gridy SA_pre2010 SA_post2010 x1 y1 z1 
+clearvars x2 y2 z2 x_all y_all z_all
 
 %% Plotting uncertainty
 metadata = metadata_save;
+
+figure('Visible',vis)
+subplot(1,2,1)
+surf(XX,YY,Uncertainty_pre2010)
+shading interp
+colorbar
+title('Uncertainty in the LAPA (1997-2008)')
+
+subplot(1,2,2)
+surf(XX,YY,Uncertainty_post2010)
+shading interp
+colorbar
+title('Uncertainty in the LAPA (2011-2017)')
+
+% creating uncertainty map
+delta_FAC10 = FAC10_map;
+delta_FAC10{1}= NaN*FAC10_map{1};
+delta_FAC10{2}= NaN*FAC10_map{1};
+
+delta_FAC10{2} = max(0.3,Uncertainty_post2010*2);
+delta_FAC10{1} = max(0.3, Uncertainty_pre2010*2);
+    
+delta_FAC100 = delta_FAC10;
+% delta_FAC100{2} = max(unc_FACtot*ones(size(temp1{1})), a_FAC*delta_FAC10{2});
+% delta_FAC100{1} = max(unc_FACtot*ones(size(temp1{1})), a_FAC*delta_FAC10{1});
+delta_FAC100{2} = a_FAC*delta_FAC10{2};
+delta_FAC100{1} = a_FAC*delta_FAC10{1};
+
 disp('Mapping Uncertainty of pore space')
 
-    disp('Mean residual:')
-    fprintf('%0.2f m3 m-3\n',nanmean(metadata.residual))
+disp('Mean residual:')
+fprintf('%0.2f m3 m-3\n',nanmean(metadata.residual))
     
-    f=figure('Units','Normalized','outerposition',[0 0 0.7 0.8]);
-    ha =tight_subplot(1,3,-0.15,[0.03 0.17],[0.01 0.11]);
+PlottingUncertaintyMap(XX,YY, delta_FAC10, FAC10_map, ...
+    DSA, HAPA, LAPA, GL, Ice, Firn, orig, vis);
+% PlottingUncertaintyMap2(XX,YY, delta_FAC10, FAC10_map, ...
+%     DSA, HAPA, LAPA, GL, Ice, Firn, orig, vis);
 
-set(f,'CurrentAxes',ha(1))
-    uncertainty_DSA = CA_save*uncert_DSA ;
-    uncertainty_DSA(FAC_10_map{1} == 0) = NaN;
-    uncertainty_DSA(HAWSA==1) = NaN; 
-    uncertainty_DSA(LAWSA==1) = NaN; 
-%     delta_FAC_1(DSA==1) = NaN; 
-    uncertainty_DSA(isnan(FAC_10_map{1})) = NaN;
+%% Firn capacity
+% Caluclating the Firn Capacity (FC) as the amount of infiltration ice is
+% needed to bring the upper 10 m of firn to a density of 843 kg/m3
+% according to Harper et al. (2012)
+FC10{1} = max(0, 10*843 - 917*(10-FAC10_map{1}));
+FC10{2} = max(0, 10*843 - 917*(10-FAC10_map{2}));
+FC10{1}(isnan(FAC10_map{1})) = NaN;
+FC10{2}(isnan(FAC10_map{2})) = NaN;
 
-        hold on
-            PlotBackground(GL,Ice,Firn);
+FC100{1} = max(0, 100*843 - 917*(100-a_FAC*FAC10_map{1}));
+FC100{2} = max(0, 100*843 - 917*(100-a_FAC*FAC10_map{2}));
+FC100{1}(isnan(FAC10_map{1})) = NaN;
+FC100{2}(isnan(FAC10_map{2})) = NaN;
 
-            h_map = pcolor(XX,YY,uncertainty_DSA./FAC_10_map{1}*100);
-            h_map.LineStyle = 'none';
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',2);
+[FC10_change] = Plotting_FC10_maps (metadata, accum_thresh, T_thresh, ...
+    XX,YY, FC10, DSA,LAPA,HAPA,GL,Ice,Firn, orig, vis);
 
-            daspect( [1 1 1])
-            xlim(1.0e+05 *[-6.2164    8.4827])
-            ylim(1.0e+06 *[-3.3439   -0.6732])
-            title('     DSA\newline1953-2017','Interpreter','tex')
-            colbar =contourcmap('jet',0:5:100,'colorbar','on');
-                ylabel(colbar,'Uncertainty on FAC_{10} (m)','Interpreter','tex');
-            set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-            for i=1:2:size(colbar.YTickLabel,1)
-            colbar.YTickLabel(i,:) = '   ';
-            end
-            colbar.Position(2) = 1.5;
-set(f,'CurrentAxes',ha(2))
-    uncertainty_LAWSA_pre2010 = max(0.3, Uncertainty_pre2010_LAWSA*2) ;
-%     delta_FAC_2(delta_FAC_2<=  0.3) = 0.299;
-    uncertainty_LAWSA_pre2010(HAWSA==1) = NaN; 
-    uncertainty_LAWSA_pre2010(DSA==1) = NaN; 
-%     uncertainty_LAWSA_pre2010(FAC_10_map{1,1} == 0) = NaN;
-    uncertainty_LAWSA_pre2010(isnan(FAC_10_map{1,1})) = NaN;
+% FACpco_map{1} = FAC10_map{1} * a_FAC + b_FAC;
+% FACpco_map{2} = FAC10_map{2} * a_FAC + b_FAC;
+% FCpco{1} = max(0, 10*843 - 917*(10-FACpco_map{1}));
+% FCpco{2} = max(0, 10*843 - 917*(10-FACpco_map{2}));
+% FCpco{1}(isnan(FACpco_map{1})) = NaN;
+% FCpco{2}(isnan(FACpco_map{2})) = NaN;
 
-        hold on
-            PlotBackground(GL,Ice,Firn);
-
-            h_map = pcolor(XX,YY,uncertainty_LAWSA_pre2010./FAC_10_map{1}*100);
-            h_map.LineStyle = 'none';
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',2);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-            daspect( [1 1 1])
-            xlim(1.0e+05 *[-6.2164    8.4827])
-            ylim(1.0e+06 *[-3.3439   -0.6732])
-            title(' LAWSA  \newline1997-2008','Interpreter','tex')
-            colbar =contourcmap('jet',0:5:100,'colorbar','on');
-                ylabel(colbar,'Uncertainty on FAC_{10} (m)','Interpreter','tex');
-            colbar.Position(2) = 1.5;
-             for i=1:2:size(colbar.YTickLabel,1)
-            colbar.YTickLabel(i,:) = '   ';
-            end
-                        set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-
-    set(f,'CurrentAxes',ha(3))
-           uncertainty_LAWSA_HAWSA_post2010 = abs(FAC_bav_spread(b_raster,T_raster))/2 + Uncertainty_post2010_LAWSA*2;
-           ind_nan = isnan(uncertainty_LAWSA_HAWSA_post2010);
-           uncertainty_LAWSA_HAWSA_post2010=  max(0.3,uncertainty_LAWSA_HAWSA_post2010);
-           uncertainty_LAWSA_HAWSA_post2010(ind_nan)=NaN;
-            uncertainty_LAWSA_HAWSA_post2010(DSA==1) = NaN; 
-
-        hold on
-            PlotBackground(GL,Ice,Firn);
-
-            h_map = pcolor(XX,YY,uncertainty_LAWSA_HAWSA_post2010./FAC_10_map{2}*100);
-            h_map.LineStyle = 'none';
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',2);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',2);
-
-            daspect( [1 1 1])
-            xlim(1.0e+05 *[-6.2164    8.4827])
-            ylim(1.0e+06 *[-3.3439   -0.6732])
-            title('LAWSA 2011-2017\newline              &   \newlineHAWSA 2010-2017','Interpreter','tex')
-            colbar =contourcmap('jet',0:5:100,'colorbar','on');
-            colbar.Position(1) = 0.81;
-            for i=2:2:size(colbar.YTickLabel,1)
-            colbar.YTickLabel(i,:) = '   ';
-            end
-            colbar.FontSize = 20;
-            ylabel(colbar,'        Relative uncertainty \newline  on predicted FAC_{10} (%)','Interpreter','tex');
-            set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-uistack(ha(1),'top')
-annotation(f,'textbox',...
-    [0.077 0.88 0.04 0.05],...
-    'String','a)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-annotation(f,'textbox',...
-    [0.32 0.88 0.04 0.05],...
-    'String','b)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-annotation(f,'textbox',...
-    [0.53 0.9 0.04 0.05],...
-    'String','c)',...
-    'LineStyle','none',...
-    'FontWeight','bold',...
-    'FontSize',20,...
-    'FitBoxToText','off');
-colormap(ha(1),'parula')
-colormap(ha(2),'parula')
-colormap(ha(3),'parula')
-colormap(colbar,'parula')
-
-print(f,sprintf('Output/uncertainty_FAC_map_overall_%s',orig),'-dtiff')
-
-%% difference Box MAR            
-                f=figure('Visible', vis, 'outerposition',[0 0 30 20]);
-    ha =tight_subplot(1,2,0.0001,[0.02 0.14],[0.07 0.3]);
-            set(f,'CurrentAxes',ha(1))
-    delta_FAC_4 = abs(FAC_10_map_MAR_resampled{1}-FAC_10_map_Box13{1});
-    delta_FAC_4(FAC_10_map_Box13{1,1} == 0) = NaN;
-
-    hold on
-                       PlotBackground(GL,Ice,Firn);            
-            h_map = pcolor(XX_box,YY_box,delta_FAC_4);
-            h_map.LineStyle = 'none';
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',3);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-
-%             scatter(metadata.X, metadata.Y ,50,...
-%                 abs(metadata_MAR.FAC10_predict-metadata_Box13.FAC10_predict),'fill'); 
-%             scatter(metadata.X, metadata.Y ,50,RGB('light light gray'));
-
-            daspect( [1 1 1])
-ha(1).Position(4) = 0.5;
-ha(1).Position(1) = 0.22;
-ha(1).Position(2) = 0.05;
-            xlim(1.0e+05 *[-6.2164    1.1])
-            ylim(1.0e+06 *[-3   -1.3])
-            box on
-            title('LAWSA 1997-2008','Interpreter','tex')
-            colbar =contourcmap('hsv',0:0.3:2.5,'colorbar','on');
-                ylabel(colbar,' ','Interpreter','tex');
-            set(gca,'XTickLabel','','YTickLabel','','TickLength',[0 0],'layer','top')
-            colbar.Position(2) = 1.5;
-
-set(f,'CurrentAxes',ha(2))
-ha(2).Position(1) = 0.4;
-    delta_FAC_5 = abs(FAC_10_map_MAR_resampled{2}-FAC_10_map_Box13{2});
-    delta_FAC_5(FAC_10_map_Box13{1,1} == 0) = NaN;
-
-    hold on
-                        PlotBackground(GL,Ice,Firn);            
-            h_map = pcolor(XX_box,YY_box,delta_FAC_5);
-            h_map.LineStyle = 'none';
-[~, h_CA] = contour(XX,YY,CA_save, [1 1],'Color','k', 'LineWidth',3);
-[~, h_WHA] = contour(XX,YY,WHA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-[~, h_WLA] = contour(XX,YY,WLA_save, [0.5 0.5],'Color','k', 'LineWidth',3);
-
-daspect( [1 1 1])
-            xlim(1.0e+05 *[-6.2164    8.4827])
-            ylim(1.0e+06 *[-3.3439   -0.6732])
-            title('DSA (1953-2017)\newlineLAWSA (2011-2017)\newline HAWSA (2010-2017)','Interpreter','tex')
-
-            colbar =contourcmap('jet2',0:0.3:2.5,'colorbar','on');
-            ylabel(colbar,'Absolute difference between Box13-derived  \newline           and MAR-derived FAC_{10}(m^3 m^{^-2})','Interpreter','tex');
-            set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
-uistack(ha,'top')
-            colbar.FontSize = 20;
-
-print(f,('Output/uncertainty_FAC_map_MAR_vs_Box13'),'-dtiff')
- 
-%% Screen printing
+%% Spatial averages
 % average values
+clc
+disp(' ============= Spatial FAC10 ============= ')
+[summary_FAC10] = PopulateSummaryTable(FAC10_map, delta_FAC10,...
+    DSA, LAPA, HAPA, 'km3',R);
+summary_FAC10.Properties.RowNames{1} = 'Mean FAC10';
+summary_FAC10.Properties.RowNames{2} = 'Uncertainty on mean FAC10';
+summary_FAC10.Properties.RowNames{3} = 'Summed FAC10';
+summary_FAC10.Properties.RowNames{4} = 'Uncertainty on summed FAC10';
+disp(summary_FAC10)
 
-temp = FAC_10_map{1};
-temp(isnan(DSA)) = NaN;
-temp2 = uncertainty_DSA;
-temp2(isnan(DSA)) = NaN;
+% FACtot
+disp(' ============= Spatial FAC100 ============= ')
+summary_FAC100 = summary_FAC10;
+summary_FAC100{1,:} = summary_FAC10{1,:} *a_FAC;
+summary_FAC100{2,:} = summary_FAC10{2,:} *a_FAC;
+summary_FAC100{3,:} = summary_FAC10{3,:} *a_FAC;
+summary_FAC100{4,:} = summary_FAC10{4,:} *a_FAC;
+summary_FAC100.Properties.RowNames{1} = 'Mean FAC100';
+summary_FAC100.Properties.RowNames{2} = 'Uncertainty on mean FAC100';
+summary_FAC100.Properties.RowNames{3} = 'Summed FAC100';
+summary_FAC100.Properties.RowNames{4} = 'Uncertainty on summed FAC100';
+disp(summary_FAC100)
 
-disp('Spatial average of FAC10 in DSA')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp)))
-disp('average uncertainty')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp2)))
-fprintf('%0.2f %%\n\n',nanmean(nanmean(temp2))/nanmean(nanmean(temp))*100)
+disp(' ============= Spatial FC10 ============= ')
+temp1 = FC10;
+temp1{1} = temp1{1}/1000;
+temp1{2} = temp1{2}/1000;
+temp2 = delta_FAC10;
+temp2{1} = 917*temp2{1}/1000;
+temp2{2} = 917*temp2{2}/1000;
 
-temp = FAC_10_map{1};
-temp(isnan(LAWSA)) = NaN;
-temp2 = uncertainty_LAWSA_pre2010;
-temp2(isnan(LAWSA)) = NaN;
+[summary_FC10] = PopulateSummaryTable(temp1, temp2,...
+    DSA, LAPA, HAPA, 'GT',R);
+summary_FC10.Properties.RowNames{1} = 'Mean FC10 (GT)';
+summary_FC10.Properties.RowNames{2} = 'Uncertainty on mean FC10 (GT)';
+summary_FC10.Properties.RowNames{3} = 'Summed FC10 (GT)';
+summary_FC10.Properties.RowNames{4} = 'Uncertainty on summed FC10 (GT)';
+temp = summary_FC10(1:2,:);
+temp.Properties.RowNames{1} = 'Summed FC10 (mm sle)';
+temp.Properties.RowNames{2} = 'Uncertainty FC10 (mm sle)';
+summary_FC10 = [summary_FC10; temp];
+summary_FC10{5,:} = summary_FC10{3,:}/ 361;
+summary_FC10{6,:} = summary_FC10{4,:}/ 361;
+disp(summary_FC10)
 
-disp('Spatial average of FAC10 in LAWSA')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp)))
-disp('average uncertainty')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp2)))
-fprintf('%0.2f %%\n\n',nanmean(nanmean(temp2))/nanmean(nanmean(temp))*100)
+disp(' ============= Spatial FC100 ============= ')
+temp1 = FC100;
+temp1{1} = temp1{1}/1000;
+temp1{2} = temp1{2}/1000;
+temp2 = delta_FAC100;
+temp2{1} = 917*temp2{1}/1000;
+temp2{2} = 917*temp2{2}/1000;
 
-temp = FAC_10_map{2};
-temp(isnan(LAWSA)) = NaN;
-temp2 = Uncertainty_post2010_LAWSA;
-temp2(isnan(LAWSA)) = NaN;
+[summary_FC100] = PopulateSummaryTable(temp1, temp2,...
+    DSA, LAPA, HAPA, 'GT',R);
+summary_FC100.Properties.RowNames{1} = 'Mean FC100';
+summary_FC100.Properties.RowNames{2} = 'Uncertainty on mean FC100';
+summary_FC100.Properties.RowNames{3} = 'Summed FC100';
+summary_FC100.Properties.RowNames{4} = 'Uncertainty on summed FC100';
+temp = summary_FC100(1:2,:);
+temp.Properties.RowNames{1} = 'Summed FC100 (mm sle)';
+temp.Properties.RowNames{2} = 'Uncertainty FC100 (mm sle)';
+summary_FC100 = [summary_FC100; temp];
+summary_FC100{5,:} = summary_FC100{3,:} / 361;
+summary_FC100{6,:} = summary_FC100{4,:}/ 361;
+disp(summary_FC100)
 
-disp('Spatial average of FAC10 in LAWSA post2010')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp)))
-disp('average uncertainty')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp2)))
-fprintf('%0.2f %%\n\n',nanmean(nanmean(temp2))/nanmean(nanmean(temp))*100)
+summary_all = [summary_FAC10; ...
+    summary_FAC100; ...
+    summary_FC10; ...
+    summary_FC100];
 
-temp = FAC_10_map{2};
-temp(isnan(HAWSA)) = NaN;
-temp2 = uncertainty_LAWSA_HAWSA_post2010;
-temp2(isnan(HAWSA)) = NaN;
+writetable(summary_all,...
+    sprintf('./Output/Summary_output_%s.csv',orig),'Delimiter',';','WriteRowNames',true)
 
-disp('Spatial average of FAC10 in HAWSA')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp)))
-disp('average uncertainty')
-fprintf('%0.2f m3 m-3\n',nanmean(nanmean(temp2)))
-fprintf('%0.2f %%\n\n',nanmean(nanmean(temp2))/nanmean(nanmean(temp))*100)
+%% Comparison with Harper et al. 2012
+[T_sorted, ind_sorted] = sort(T_raster(:),1,'descend');
+i_first_nonan = find(~isnan(T_sorted),1,'first');
 
-%% Summing for each area
-if source_temp_accum == 1
-    R = R_Box13;
-end
-SpatialIntegration = @(M,R) (nansum(M* R.CellExtentInWorldX *R.CellExtentInWorldY))/1000000000;
+area_percolation = 1.5 * 10^5; %km2
 
-% disp('Mid estimate all pre2010 (km3):')
-% disp([SpatialIntegration(FAC_10_map{1}, R),...
-%     SpatialIntegration(FAC_10_map{1}, R)-SpatialIntegration(FAC_10_map{1}+0.3, R),...
-%     SpatialIntegration(FAC_10_map{1}, R)-SpatialIntegration(FAC_10_map{1}-0.3, R)]);
+num_cell = round(area_percolation/(R.CellExtentInWorldX * R.CellExtentInWorldY*10^(-6)));
 
-disp('Mid estimate DSA  (km3):')
-disp([SpatialIntegration(FAC_10_map{1}(DSA==1), R),SpatialIntegration(uncertainty_DSA(DSA==1), R)]);
-disp('Mid estimate LAWSA pre2010 (km3):')
-disp([SpatialIntegration(FAC_10_map{1}(LAWSA==1), R), SpatialIntegration(uncertainty_LAWSA_pre2010(LAWSA==1), R)]);
-disp('Mid estimate LAWSA post2010 (km3):')
-disp([SpatialIntegration(FAC_10_map{2}(LAWSA==1), R),SpatialIntegration(uncertainty_LAWSA_HAWSA_post2010(LAWSA==1), R)]);
-disp('Mid estimate HAWSA post2010 (km3):')
-disp([SpatialIntegration(FAC_10_map{2}(HAWSA==1), R),SpatialIntegration(uncertainty_LAWSA_HAWSA_post2010(HAWSA==1), R)]);
-nanmedian(FAC_10_map{1}(LAWSA==1) - FAC_10_map{2}(LAWSA==1))
+is_perc_area = zeros(size(T_sorted));
+is_perc_area_unsorted = zeros(size(T_sorted));
+is_perc_area(i_first_nonan:i_first_nonan+num_cell) = 1;
+is_perc_area_unsorted(ind_sorted) = is_perc_area;
 
-disp('Total FAC post2010 (km3):')
-TotalFAC = (SpatialIntegration(FAC_10_map{2}(HAWSA==1), R) + SpatialIntegration(FAC_10_map{2}(LAWSA==1), R) + SpatialIntegration(FAC_10_map{1}(DSA==1), R));
-uncert_TotalFAC = SpatialIntegration(uncertainty_DSA(DSA==1), R) + SpatialIntegration(uncertainty_LAWSA_HAWSA_post2010(LAWSA==1), R) +SpatialIntegration(uncertainty_LAWSA_HAWSA_post2010(HAWSA==1), R);
-disp([TotalFAC uncert_TotalFAC]);
-disp('assuming that it was filled with ice (GT):')
-disp([TotalFAC uncert_TotalFAC]* 873 * 10^9 / 10^12) ;  
-disp('assuming that it was filled with ice (mm SLE):')
-disp([TotalFAC uncert_TotalFAC]* 873 * 10^9 / 10^12/ 361) ;
-  
-disp('Loss LAWSA (km3):')
-loss_LAWSA = SpatialIntegration(FAC_10_map{1}(LAWSA==1), R)-SpatialIntegration(FAC_10_map{2}(LAWSA==1), R);
-uncert_loss_LAWSA = SpatialIntegration(uncertainty_LAWSA_pre2010(LAWSA==1), R) + SpatialIntegration(uncertainty_LAWSA_HAWSA_post2010(LAWSA==1), R);
-disp([loss_LAWSA uncert_loss_LAWSA]);
+is_perc_area_mat = reshape(is_perc_area_unsorted,size(T_raster));
+is_perc_area_mat(is_perc_area_mat==0) = 0;
+PA_LAPA = and(is_perc_area_mat==1,LAPA == 1);
+PA_HAPA = and(is_perc_area_mat==1,HAPA == 1);
 
-disp('assuming that it was filled with ice (GT):')
-disp([loss_LAWSA uncert_loss_LAWSA]* 873 * 10^9 / 10^12) ;
-    
-disp('assuming that it was filled with ice (mm SLE):')
-disp([loss_LAWSA uncert_loss_LAWSA]* 873 * 10^9 / 10^12/ 361) ;
+disp (' =========== FC10 in Harper''s percolation area =====')
+SpatialIntegration = @(M,R) ...
+    (nansum(M* R.CellExtentInWorldX *R.CellExtentInWorldY))/10^9;
+FC_perc_area = 10^(-3)*SpatialIntegration(FC10{2}(is_perc_area_mat==1),R);
+uncert_FC_perc_area = 10^(-3)*SpatialIntegration(917*delta_FAC10{2}(is_perc_area_mat==1), R);
+fprintf('FC10 in percolation area: \n%0.2f +/- %0.2f\n', FC_perc_area, uncert_FC_perc_area)
+
+FC_perc_area = 10^(-3)*SpatialIntegration(FC100{2}(is_perc_area_mat==1),R);
+uncert_FC_perc_area = 10^(-3)*SpatialIntegration(917*delta_FAC100{2}(is_perc_area_mat==1), R);
+fprintf('FC100 in percolation area: \n%0.2f +/- %0.2f\n', FC_perc_area, uncert_FC_perc_area)
+
+FC_perc_area_LAPA = 10^(-3)*SpatialIntegration(FC10{2}(PA_LAPA==1),R);
+uncert_FC_perc_area_LAPA = 10^(-3)*SpatialIntegration(917*delta_FAC10{2}(PA_LAPA==1), R);
+fprintf('FC10 in LAPA: \n%0.2f +/- %0.2f\n', FC_perc_area_LAPA, uncert_FC_perc_area_LAPA)
+
+FC_perc_area_HAPA = 10^(-3)*SpatialIntegration(FC10{2}(PA_HAPA==1),R);
+uncert_FC_perc_area_HAPA = 10^(-3)*SpatialIntegration(917*delta_FAC10{2}(PA_HAPA==1), R);
+fprintf('FC10 in HAPA: \n%0.2f +/- %0.2f\n', FC_perc_area_HAPA, uncert_FC_perc_area_HAPA)
+
+fprintf('\nHarper''s perc zone area: %0.2f km2\n',SpatialIntegration(is_perc_area_mat(is_perc_area_mat==1),R)*10^3)
+temp = or (LAPA == 1, HAPA ==1);
+fprintf('our LAPA + HAPA: %0.2f km2\n',SpatialIntegration(temp(:),R)*10^3)
+
+fprintf('\nHarper''s LAPA area: %0.2f %\n',SpatialIntegration(is_perc_area_mat(PA_LAPA==1),R)/SpatialIntegration(is_perc_area_mat(is_perc_area_mat==1),R)*100)
+fprintf('\nHarper''s HAPA area: %0.2f %\n',SpatialIntegration(is_perc_area_mat(PA_HAPA==1),R)/SpatialIntegration(is_perc_area_mat(is_perc_area_mat==1),R)*100)
+
+figure
+hold on 
+PlotBackground(GL,Ice,Firn);
+% h = pcolor(XX,YY,T_raster);
+% h.LineStyle = 'none';
+temp = PA_LAPA+0;
+temp(temp==0) = NaN;
+h2 = surf(XX,YY,temp);
+h2.LineStyle = 'none';
+h2.FaceColor = RGB('rouge');
+temp = PA_HAPA+0;
+temp(temp==0) = NaN;
+h2 = surf(XX,YY,temp+1);
+h2.LineStyle = 'none';
+h2.FaceColor = RGB('vert');
+set(gca,'XTickLabel','','YTickLabel','','XColor','w','YColor','w')
+
+[~, ~] = contour(XX,YY,DSA, [1 1],'Color','k', 'LineWidth',1);
+[~, ~] = contour(XX,YY,HAPA, [0.5 0.5],'Color','k', 'LineWidth',1);
+[~, ~] = contour(XX,YY,LAPA, [0.5 0.5],'Color','k', 'LineWidth',1);
+axis tight
+daspect( [1 1 1])
+xlim(1.0e+05 *[-6.2164    8.4827])
+ylim(1.0e+06 *[-3.3439   -0.6732])
+title('Harper et al.''s percolation area') 
 
 %% Printing to files
 disp('')
 
-disp('Printing FAC10 map')
-
-% DSA
-    temp = FAC_10_map{1};
-    temp(isnan(DSA)) = NaN;
+disp('Printing to raster files')
     mkdir('Output/FAC10 maps')
-    filename= sprintf('Output/FAC10 maps/FAC10_DSA_%s.tif', name_source);
-    geotiffwrite(filename, temp,R,'CoordRefSysCode',3413)  
-
-        filename= sprintf('Output/FAC10 maps/FAC10_uncertainty_DSA_%s.tif', name_source);
-        temp = uncertainty_DSA;
-        temp(isnan(temp))=NaN;
-        geotiffwrite(filename, uncertainty_DSA,R,'CoordRefSysCode',3413)  
     
-% LAWSA
-    %pre
-    temp1 = FAC_10_map{1};
-    temp1(isnan(LAWSA)) = NaN;
+% metadata
+temp = datevec(datenum(metadata.Date));
+metadata.Month = temp(:,2);
+metadata.Day = temp(:,3);
+
+writetable(metadata,sprintf('Output/metadata_%s.csv',orig),'Delimiter',';');
+
+% FAC10
+
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_DSA_1953_2017_%s.tif', orig),...
+        FAC10_map{2}, DSA, R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_DSA_1953_2017_u_%s.tif', orig),...
+        delta_FAC10{2}, DSA, R)
+
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_LAPA_1998_2008_%s.tif', orig),...
+        FAC10_map{1}, LAPA, R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_LAPA_1998_2008_u_%s.tif', orig),...
+        delta_FAC10{1}, LAPA, R)
+
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_PA_2010_2017_%s.tif', orig),...
+        FAC10_map{2}, LAPA+HAPA, R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FAC10_PA_2010_2017_u_%s.tif', orig),...
+        delta_FAC10{2}, LAPA+HAPA, R)
+
+
+
+% FC10
+    PrintFACmap(sprintf('Output/FAC10 maps/FC10_post2010_%s.tif', orig),...
+        FC10{2}, ~isnan(FC10{2}), R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FC10_post2010_u_%s.tif', orig),...
+        917*delta_FAC10{2}, ~isnan(FAC10_map{2}), R)
+
+    PrintFACmap(sprintf('Output/FAC10 maps/FC10_pre2010_%s.tif', orig),...
+        FC10{1}, ~isnan(FC10{1}), R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FC10_pre2010_u_%s.tif', orig),...
+        917*delta_FAC10{1}, ~isnan(FC10{1}), R)
+%FC100
+    PrintFACmap(sprintf('Output/FAC10 maps/FC100_post2010_%s.tif', orig),...
+        FC100{2}*a_FAC, ~isnan(FC100{2}), R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FC100_post2010_u_%s.tif', orig),...
+        delta_FAC10{2}*a_FAC, ~isnan(FC100{2}), R)
+
+    PrintFACmap(sprintf('Output/FAC10 maps/FC100_pre2010_%s.tif', orig),...
+        FC100{1}*a_FAC, ~isnan(FC100{1}), R)
+    PrintFACmap(sprintf('Output/FAC10 maps/FC100_pre2010_u_%s.tif', orig),...
+        917*delta_FAC10{1}*a_FAC, ~isnan(FC100{1}), R)
+
+%% difference Box MAR
+    if source_temp_accum == 1
+        FAC_10_map_Box13 = FAC10_map;
+        FAC_10_spread_Box13 = delta_FAC10;
+        metadata_Box13 = metadata;
+        R_Box13 = R;
+        save ('./Output/Box13_result.mat','FAC_10_map_Box13','metadata_Box13','R_Box13','FAC_10_spread_Box13') ;
+        load('./Output/MAR_result.mat')
+    else
+        FAC_10_map_MAR = FAC10_map;
+        metadata_MAR = metadata;
+        FAC_10_spread_MAR = delta_FAC10;
+
+        R_MAR = R;
+        save('./Output/MAR_result.mat','FAC_10_map_MAR','metadata_MAR','R_MAR','FAC_10_spread_MAR') 
+        load('./Output/Box13_result.mat') 
+    end
     
-    filename= sprintf('Output/FAC10 maps/FAC10_LAWSA_pre2010_%s.tif', name_source);
-    geotiffwrite(filename, temp1,R,'CoordRefSysCode',3413)
-
-        filename= sprintf('Output/FAC10 maps/FAC10_uncertainty_LAWSA_pre2010_%s.tif', name_source);
-        
-        temp = uncertainty_LAWSA_pre2010;
-        temp(isnan(temp))=NaN;
-    geotiffwrite(filename, temp,R,'CoordRefSysCode',3413)
-
-    %post
-    temp2 = FAC_10_map{2};
-    temp2(isnan(LAWSA)) = NaN;
-    
-    filename= sprintf('Output/FAC10 maps/FAC10_LAWSA_post2011_%s.tif', name_source);
-    geotiffwrite(filename, temp2,R,'CoordRefSysCode',3413)  
-
-        temp = uncertainty_LAWSA_HAWSA_post2010;
-        temp(isnan(LAWSA)) = NaN;
-
-        filename= sprintf('Output/FAC10 maps/FAC10_uncertainty_LAWSA_post2011_%s.tif', name_source);
-        geotiffwrite(filename, temp,R,'CoordRefSysCode',3413)
-        
-    %change
-        filename= sprintf('Output/FAC10 maps/FAC10_change_LAWSA_%s.tif', name_source);
-        temp = temp1-temp2;
-        temp(isnan(temp))=NaN;
-        geotiffwrite(filename, temp1-temp2,R,'CoordRefSysCode',3413)  
-
-%HAWSA
-    temp = FAC_10_map{2};
-    temp(isnan(HAWSA)) = NaN;
-    
-    filename= sprintf('Output/FAC10 maps/FAC10_HAWSA_%s.tif', name_source);
-    geotiffwrite(filename, temp,R,'CoordRefSysCode',3413) 
-
-        temp = uncertainty_LAWSA_HAWSA_post2010;
-        temp(isnan(HAWSA)) = NaN;
-
-        filename= sprintf('Output/FAC10 maps/FAC10_uncertainty_HAWSA_%s.tif', name_source);
-        geotiffwrite(filename, temp,R,'CoordRefSysCode',3413) 
-       
-%% Analysis of the temperature thresholds
-figure
-
-subplot(2,1,1)
-% for Box13
-scatter(metadata_Box13.T_avg, metadata_Box13.FAC10)
-bins = floor(min(metadata_Box13.T_avg)): 2 : max(metadata_Box13.T_avg);
-std_bin = 0*bins(1:end-1);
-
-for i = 1:length(bins)-1
-    ind = and( metadata_Box13.T_avg>=bins(i), metadata_Box13.T_avg<bins(i+1));
-    std_bin(i) = std(metadata_Box13.FAC10(ind));
+for i = 1:2
+    FAC_10_map_MAR_resampled{i} = ...
+        griddata(XX_mar,YY_mar,FAC_10_map_MAR{i},XX_box,YY_box);
+    FAC_10_spread_MAR_resampled = ...
+        griddata(XX_mar,YY_mar,FAC_10_spread_MAR{i},XX_box,YY_box);
 end
 
-hold on
-stairs(bins(1:end-1), std_bin,'LineWidth',2)
-plot(bins([1 end]), [1 1]*0.3,'--k')
-h_leg1 = legend('FAC10 measurements','Standard deviation of FAC10\newline measurements in 1K-wide bins',...
-    'Criteria defining the temperature \newline threshold: 0.3 m3 m-2','Location','NorthOutside','Interpreter','tex') ;
-h_leg1.Units = 'normalized';
-xlabel('Long-term average temperature (degC)')
-ylabel('FAC_10 (m3 m-2)')
-box on
-title('Temperature threshold between DSA and LAWSA \newline                              for Box13 product','Interpreter','tex')
+diff_MAR_box_1 = abs(FAC_10_map_MAR_resampled{1}-FAC_10_map_Box13{1});
+diff_MAR_box_1(FAC_10_map_Box13{1,1} == 0) = NaN;
 
-% for MAR
-bins = floor(min(metadata_MAR.T_avg))-1: 1 : max(metadata_MAR.T_avg);
-std_bin = 0*bins(1:end-1);
-
-for i = 1:length(bins)-1
-    ind = and( metadata_MAR.T_avg>=bins(i), metadata_MAR.T_avg<bins(i+1));
-    std_bin(i) = std(metadata_MAR.FAC10(ind));
-end
-
-subplot(2,1,2)
-scatter(metadata_MAR.T_avg, metadata_MAR.FAC10)
-hold on
-stairs(bins(1:end-1), std_bin,'LineWidth',2)
-plot(bins([1 end]), [1 1]*0.3,'--k')
-h_leg = legend('FAC10 measurements','Standard deviation of FAC10\newline measurements in 1K-wide bins',...
-    'Criteria defining the temperature \newline threshold: 0.3 m3 m-2','Location','NorthOutside','Interpreter','tex') ;
-h_leg.Units = 'normalized';
-h_leg.Parent = gcf;
-h_leg1.Parent = gcf;
-h_leg.Position = [0.72 0.8 0.26 0.19];
-h_leg1.Position = h_leg.Position;
-xlabel('Long-term average temperature (degC)')
-ylabel('FAC_10 (m3 m-2)')
-box on
-title('  \newline for MAR products','Interpreter','tex')
-
-%% Slope-break between DSA and HAWSA
-figure
-ind_jaune = metadata.T_avg<T_thresh;
-ind_vert = and(metadata.T_avg>T_thresh,metadata.b_avg>accum_thresh);
-ind_rouge = and(metadata.T_avg>T_thresh,metadata.b_avg<=accum_thresh);
-x1 = metadata.T_avg(ind_jaune);
-y1=metadata.FAC10(ind_jaune);
-x2 = metadata.T_avg(ind_vert);
-y2=metadata.FAC10(ind_vert);
-hold on
-    % ha(6).Position(2) = 0.28;
-    scatter(x1,y1,20,'k','fill')
-    scatter(x2,y2,20,'k','fill')
-    [lm, ah] = Plotlm(x1,y1,'Unit','m^3 m^{-2} K^{-1}');
-    ah.LineStyle = 'none';
-    [lm, ah] = Plotlm(x2,y2,'Unit','m^3 m^{-2} K^{-1}');
-        ah.LineStyle = 'none';
-
-    hold on
-    % plot([T_thresh T_thresh],[0 7],'--k','LineWidth',2)
-    xlabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex')
-    box on
-
-    axis tight
-    xlimits = get(gca,'XLim');
-    pp1 = patch([xlimits(1) xlimits(1) T_thresh T_thresh ],...
-        [0 7 7 0],...
-        jaune);
-    pp2 = patch([T_thresh T_thresh xlimits(2)   xlimits(2)],...
-        [0 7 7 0],...
-        vert);
-    uistack(pp1,'bottom')
-    uistack(pp2,'bottom')
-
-    h_ylab = ylabel('FAC_{10} (m)','Interpreter','tex');
-set(gca,'Ticklength',[0.08 0.16]/2.5,'Ticklength',[0.08 0.16]/2,...
-    'XMinorTick','on','YMinorTick','on','XAxisLocation','bottom','YAxisLocation','left','layer','top')
-axis tight
-
-ylim([0 7])
-title('Slope break between DSA and HAWSA')
+diff_MAR_box_2 = abs(FAC_10_map_MAR_resampled{2}-FAC_10_map_Box13{2});
+diff_MAR_box_2(FAC_10_map_Box13{1,1} == 0) = NaN;
+    
+PlottingDifferenceBoxMAR(XX_box,YY_box,diff_MAR_box_1,diff_MAR_box_2,...
+    XX, YY, DSA, HAPA, LAPA, GL, Ice, Firn, vis);
 
 %% Uncertainty on pore space
 disp('Uncertainty on pore space')
@@ -2035,9 +1169,9 @@ set(gca,'XMinorTick','on','YMinorTick','on','FontSize',18,...
 box on
 axis tight square
 xlabel('Year of survey')
-ylabel('Standard deviation \newlineof FAC\_10 (m^3 / m^2)','Interpreter','tex')
+ylabel('Standard deviation \newlineof FAC_{10} (m)','Interpreter','tex')
 
 print(f,'Output/Standard_Deviation.tif','-dtiff')
 
-writetable(out_table,'./Output/Uncertainty_table.csv','Delimiter',';');
-
+writetable(out_table, ...
+sprintf('./Output/Uncertainty_table_%s.csv',orig),'Delimiter',';');
