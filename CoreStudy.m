@@ -50,14 +50,14 @@ warning('off','curvefit:fit:noStartPoint');
 warning('off','MATLAB:table:RowsAddedExistingVars');
 warning('off','MATLAB:table:RowsAddedNewVars');
 
-vis = 'off'; % make plot visible. If 'off' plots are not displayed but still printed
+vis = 'on'; % make plot visible. If 'off' plots are not displayed but still printed
 mkdir('.\Output')
 addpath(genpath('.\lib'))
 addpath(genpath('.\Input'))
 
 %% ========= Here you choose the T and b map source ====================
 % 1 is Box13 2 is MAR 3 is HIRHAM
- source_temp_accum = 2;
+ source_temp_accum = 1;
 switch source_temp_accum 
     case 1
          accum_thresh = 600;
@@ -147,9 +147,8 @@ end
         
 %% Loading FAC10 dataset
 disp('Loading FAC10 dataset')
-LoadFACData = 1; %Load the 
 
-if exist('./Input/Core_all.mat') == 2
+if exist('./Input/Core_all2.mat') == 2
     disp('Calculating FAC10 from firn density')
     [metadata] = Create_FAC10_dataset(T_map,c_map,vis);
 else
@@ -159,9 +158,10 @@ else
 end
 
 % The metadata is distributed with average temperature and accumulation
-% from Box (2013) and Box et al. (2013).
-% If working with MAR, then they need to be overwritten.
-if source_temp_accum == 2
+% from MAR.
+% If working with  Box (2013) and Box et al. (2013), 
+% then they need to be overwritten.
+if source_temp_accum == 1
     for i = 1:height(metadata)        
         % accumulation
          [~, ind] = min(distance( metadata.Latitude(i),metadata.Longitude(i),...
@@ -276,6 +276,7 @@ PlottingFigure1(metadata, T_thresh, accum_thresh, ...
 
 %% FACtot
 metadata = metadata_save;
+
 Harper_latlon = [69.87650	47.01020; ...
 69.84802	47.27358; ...
 69.81998	47.45050; ...
@@ -312,7 +313,7 @@ f= figure('Visible',vis,'Outerposition',[1 1 13 13]);
 ha = tight_subplot(2,1,0.1,[0.3 0],[0.1 0.3]);
     set(gcf,'CurrentAxes', ha(1))
     
-    ind_long = find(~isnan(metadata.FACtot));
+    ind_long = find(metadata.DepthMax>=100);
     x = metadata.FAC10(ind_long);
     y = metadata.FACtot(ind_long);
     col = brewermap(length(ind_long)+1,'set1')*0+1;
@@ -1063,15 +1064,14 @@ for i = 1:length(years)
         end
         nearby_cores = find(dist_cores < 3/111);
         if length(nearby_cores)>1
-            M = table(metadata.CoreNumber(ind_year(nearby_cores)), ...
-                metadata.Name(ind_year(nearby_cores)), ...
+            M = table(metadata.Name(ind_year(nearby_cores)), ...
                 metadata.Year(ind_year(nearby_cores)), ...
                 metadata.FAC10(ind_year(nearby_cores)),...
                 ones(size(metadata.FAC10(ind_year(nearby_cores))))*mean(metadata.FAC10(ind_year(nearby_cores))),...
                 ones(size(metadata.FAC10(ind_year(nearby_cores))))*std(metadata.FAC10(ind_year(nearby_cores))),...
                 ones(size(metadata.FAC10(ind_year(nearby_cores))))*numel(ind_year(nearby_cores)),...
                 metadata.Citation(ind_year(nearby_cores)),'VariableNames',...
-                {'CoreNumber','Name','Year','FAC_10m','mean_FAC','std_FAC','NumCores','Citation'});
+                {'Name','Year','FAC_10m','mean_FAC','std_FAC','NumCores','Citation'});
             
             out_table = [out_table; M];
             
