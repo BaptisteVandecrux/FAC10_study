@@ -1,7 +1,7 @@
 # FAC10_study
-This is the script used to analyse the firn cores and derive maps of Firn Air Content to 10 m depth (FAC10) in Greenland.
+These are the scripts used to analyse the firn cores and derive maps of Firn Air Content to 10 m depth (FAC10) in Greenland.
 
 More details are available in:
-Vandecrux, B., M. MacFerrin, H. Machguth, W.T. Colgan, D. van As, A. Heilig, C. M. Stevens, C. Charalampidis, R. Fausto, E. M. Morris, E. Mosley-Thompson, L. Koenig, L.N. Montgomery, C. Miège, S. Simonsen, T. Ingeman-Nielsen, J.E. Box, Brief communication: New firn dataset shows the evolution of the firn air content on the Greenland ice sheet. Submitted to the Cryosphere.
+Vandecrux, B., MacFerrin, M., Machguth, H., Colgan, W. T., van As, D., Heilig, A., Stevens, C. M., Charalampidis, C., Fausto, R. S., Morris, E. M., Mosley-Thompson, E., Koenig, L., Montgomery, L. N., MiÃ¨ge, C., Simonsen, S. B., Ingeman-Nielsen, T., and Box, J. E.: Firn data compilation reveals widespread decrease of firn air content in western Greenland, The Cryosphere, https://doi.org/10.5194/tc-2018-172, 2019.
 
 Built with Matlab R2015b
