@@ -99,13 +99,13 @@ function [FAC10_change] = Plotting_FAC10_maps (metadata, accum_thresh, T_thresh,
 
     annotation(f,'textbox',...
         [0.22 0.78 0.04 0.05],...
-        'String','a)',...
+        'String','(a)',...
         'LineStyle','none',...
         'FontWeight','bold',...
         'FontSize',20,...
         'FitBoxToText','off');
 
-    print(f,sprintf('Output/FAC_map_%s',orig),'-dtiff')
+    print(f,sprintf('Output/FAC_map_%s',orig),'-dtiff','-r400')
 
     %% FAC change
     f=figure('Units','Normalized','outerposition',[0 0 0.4 0.8],'Visible',vis);
@@ -139,7 +139,7 @@ function [FAC10_change] = Plotting_FAC10_maps (metadata, accum_thresh, T_thresh,
     colbar2.FontSize = 20;
     xlim(1.0e+05 *[-4    1.5])
     ylim(1.0e+06 *[-3   -1.4])
-    h_title = title('b) LAPA: 2010-2017 minus 1998-2008','Interpreter','tex');
+    h_title = title('(b) LAPA: 2010-2017 minus 1998-2008','Interpreter','tex');
     h_title.Units = 'Normalized';
     h_title.Position = [0.45          1.03             0];
     box on
@@ -152,6 +152,6 @@ function [FAC10_change] = Plotting_FAC10_maps (metadata, accum_thresh, T_thresh,
     for i=2:2:size(colbar2.YTickLabel,1)
         colbar2.YTickLabel(i,:) = '    ';
     end
-    print(f,sprintf('Output/FAC_change_map_%s',orig),'-dtiff')
+    print(f,sprintf('Output/FAC_change_map_%s',orig),'-dtiff','-r400')
 
 end

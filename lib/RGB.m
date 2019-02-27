@@ -55,7 +55,8 @@ function RGB= RGB(index_or_name)
 colors= {
 1    0    0    'red';
 194/255 78/255 67/255 'rouge';
-194/200 78/200 67/200 'rouge clair';
+194/300 78/300 67/300 'rouge foncé';
+194/194 78/194 67/194 'rouge clair';
 1    0.6  0    'orange';
 0.25 0.25 0.9  {'blue','cobalt blue'};
 0    1    0    {'green','light green'};

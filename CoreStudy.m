@@ -56,8 +56,8 @@ addpath(genpath('.\lib'))
 addpath(genpath('.\Input'))
 
 %% ========= Here you choose the T and b map source ====================
-% 1 is Box13 2 is MAR 3 is HIRHAM
- source_temp_accum = 1;
+% 1 is Box13 2 is MAR
+ source_temp_accum = 2;
 switch source_temp_accum 
     case 1
          accum_thresh = 600;
@@ -148,7 +148,7 @@ end
 %% Loading FAC10 dataset
 disp('Loading FAC10 dataset')
 
-if exist('./Input/Core_all2.mat') == 2
+if exist('./Input/Core_all.mat') == 2
     disp('Calculating FAC10 from firn density')
     [metadata] = Create_FAC10_dataset(T_map,c_map,vis);
 else
@@ -382,7 +382,7 @@ ha(2).Position = [0.59 0.21 0.2 0.35];
     axis fill
     set(gca,'Ticklength',[0.08 0.16]*0,'layer','top')
 
-print(f,'Output/FAC10_vs_FACtot','-dtiff') 
+print(f,'Output/FAC10_vs_FACtot','-dtiff','-r350') 
 print(f,'Output/FAC10_vs_FACtot','-dpdf') 
 
 % Assigning FACtot

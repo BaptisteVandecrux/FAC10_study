@@ -509,7 +509,7 @@ for i = 5:8
     ha(i).Title.FontSize = 13;
 end
 
-print(f,'./Output/RCM_comp','-dtiff')
+print(f,'./Output/RCM_comp','-dtiff','-r400')
 print(f,'./Output/RCM_comp','-dpdf')
 
 M = [out_HH10_LIN;  
@@ -914,7 +914,7 @@ set(gcf,'CurrentAxes',ha(8))
     set(gca, 'layer','top','TickLength', get(gca,'TickLength')*1.5,'YAxisLocation','right')
     h_tit.Position = [0.21 0.17 0.1];
 
-print(f,'./Output/FAC_evolution','-dtiff')
+print(f,'./Output/FAC_evolution','-dtiff','-r400')
 print(f,'./Output/FAC_evolution','-dpdf')
 
 %% Calculating FC
@@ -1148,7 +1148,7 @@ print(f,'./Output/FAC_evolution','-dpdf')
 %     set(gca, 'layer','top','TickLength', get(gca,'TickLength')*1.5,'YAxisLocation','right')
 %     h_tit.Position = [0.21 0.17 0.1];
 % 
-% print(f,'./Output/FC_evolution','-dtiff')
+% print(f,'./Output/FC_evolution','-dtiff','-r400')
 % print(f,'./Output/FC_evolution','-dpdf')
 
 
