@@ -148,7 +148,7 @@ end
 %% Loading FAC10 dataset
 disp('Loading FAC10 dataset')
 
-if exist('./Input/Core_all.mat') == 2
+if exist('./Input/Core_all2.mat') == 2
     disp('Calculating FAC10 from firn density')
     [metadata] = Create_FAC10_dataset(T_map,c_map,vis);
 else

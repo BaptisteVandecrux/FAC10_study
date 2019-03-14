@@ -428,27 +428,27 @@ ha = tight_subplot(2,4,[0.0 0.01],0.17,0.1);
 set(f,'CurrentAxes',ha(1))
 out_HH10_LIN = Plotting_FAC_RCM_Comp(metadata.FAC10_HH_LIN, metadata.FAC10,...
     metadata.T_avg, metadata.c_avg, 0.3);
-title('a) HH_LIN','Interpreter','none');
+title('(a) HH_LIN','Interpreter','none');
 axis square tight
     ylabel('Observed FAC_{10} (m)','interpreter','tex')
 
 set(f,'CurrentAxes',ha(5))
 out_HH100_LIN = Plotting_FAC_RCM_Comp(metadata.FAC100_HH_LIN, metadata.FACpco,...
     metadata.T_avg, metadata.c_avg, 1);
-title('e) HH_LIN','Interpreter','none');
+title('(e) HH_LIN','Interpreter','none');
 axis square tight
     ylabel('Observed FAC_{tot} (m)','interpreter','tex')
 
 set(f,'CurrentAxes',ha(2))
 out_HH10_MOD = Plotting_FAC_RCM_Comp(metadata.FAC10_HH_MOD, metadata.FAC10,...
     metadata.T_avg, metadata.c_avg, 0.3);
-title('b) HH_MOD','Interpreter','none');
+title('(b) HH_MOD','Interpreter','none');
 axis square tight
 
 set(f,'CurrentAxes',ha(6))
 out_HH100_MOD = Plotting_FAC_RCM_Comp(metadata.FAC100_HH_MOD, metadata.FACpco,...
     metadata.T_avg, metadata.c_avg, 1);
-title('f) HH_MOD','Interpreter','none');
+title('(f) HH_MOD','Interpreter','none');
 axis square tight
 h_x1 = xlabel('Modelled FAC_{tot}  (m)','interpreter','tex');
 
@@ -456,19 +456,19 @@ h_x1 = xlabel('Modelled FAC_{tot}  (m)','interpreter','tex');
 set(f,'CurrentAxes',ha(3))
 out_RACMO10 = Plotting_FAC_RCM_Comp(metadata.FAC10_RACMO, metadata.FAC10,...
     metadata.T_avg, metadata.c_avg, 0.3);
-title('c) RACMO2.3p2','Interpreter','tex');
+title('(c) RACMO2.3p2','Interpreter','tex');
 axis square tight
     
 set(f,'CurrentAxes',ha(7))
 out_RACMO100 = Plotting_FAC_RCM_Comp(metadata.FAC100_RACMO, metadata.FACpco,...
     metadata.T_avg, metadata.c_avg, 1);
-title('g) RACMO2.3p2','Interpreter','tex');
+title('(g) RACMO2.3p2','Interpreter','tex');
 axis square tight
 
 set(f,'CurrentAxes',ha(4))
 out_MAR10 = Plotting_FAC_RCM_Comp(metadata.FAC10_MAR, metadata.FAC10,...
     metadata.T_avg, metadata.c_avg, 0.3);
- title('d) MARv3.9','Interpreter','tex');
+ title('(d) MARv3.9','Interpreter','tex');
 axis square tight
 h_x2 = xlabel('Modelled FAC_{10}  (m)','interpreter','tex');
 h_x2.Units = 'normalized';
@@ -734,7 +734,7 @@ set(gcf,'CurrentAxes',ha(1))
     uistack(h,'bottom')
     uistack(h_unc,'bottom')
 
-    h_tit = title('a) All firn area','Interpreter','tex');
+    h_tit = title('(a) All firn area','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position(1:2) = [0.25 0.1  ];
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5)
@@ -756,7 +756,7 @@ set(gcf,'CurrentAxes',ha(3))
     set_monthly_tick(datenum(time_RACMO5,1,1));
     ylim([4.5 6.5])
     xlim(datenum([1958 2016],1,1))
-    h_tit = title('b) DSA  ','Interpreter','tex');
+    h_tit = title('(b) DSA  ','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized';
     h_tit.Position(1:2) = [0.17 0.68  ];
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5)
@@ -789,7 +789,7 @@ set(gcf,'CurrentAxes',ha(5))
     set_monthly_tick(datenum(time_RACMO5,1,1));
     xlim(datenum([1958 2016],1,1))
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5)
-    h_tit = title('c) LAPA','Interpreter','tex');
+    h_tit = title('(c) LAPA','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position(1:2) = [0.17 0.17  ];
     h_lab=ylabel('Spatially integrated FAC_{10} (10^{3} km^3)','Interpreter','tex');
@@ -813,7 +813,7 @@ set(gcf,'CurrentAxes',ha(7))
         ylim([0.3 0.9])
     set_monthly_tick(datenum(time_RACMO5,1,1));
     xlim(datenum([1958 2016],1,1))
-    h_tit = title('d)HAPA','Interpreter','tex');
+    h_tit = title('(d) HAPA','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position(1:2) = [0.17 0.17 ];
     set(gca, 'layer','top','TickLength', get(gca,'TickLength')*1.5)
@@ -833,7 +833,7 @@ set(gcf,'CurrentAxes',ha(2))
     uistack(h_unc,'bottom')
     set_monthly_tick(datenum(time_RACMO5,1,1));
     xlim(datenum([1958 2016],1,1))
-    h_tit = title('e) All firn area','Interpreter','tex');
+    h_tit = title('(e) All firn area','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position(1:2) = [0.25 0.1];
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5,...
@@ -855,7 +855,7 @@ set(gcf,'CurrentAxes',ha(2))
     set_monthly_tick(datenum(time_RACMO5,1,1));
     ylim([20 28])
     xlim(datenum([1958 2016],1,1))
-    h_tit = title('f) DSA  ','Interpreter','tex');
+    h_tit = title('(f) DSA  ','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position(1:2) = [0.17 0.68  ];
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5,...
@@ -887,7 +887,7 @@ set(gcf,'CurrentAxes',ha(6))
     set_monthly_tick(datenum(time_RACMO5,1,1));
     xlim(datenum([1958 2016],1,1))
     set(gca,'XTickLabel','', 'layer','top','TickLength', get(gca,'TickLength')*1.5,'YAxisLocation','right')
-    h_tit = title('g) LAPA','Interpreter','tex');
+    h_tit = title('(g) LAPA','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     h_tit.Position = [0.18 0.28 0.1];
     h_lab=ylabel('Spatially integrated FAC_{tot} (10^{3} km^3)','Interpreter','tex');
@@ -909,7 +909,7 @@ set(gcf,'CurrentAxes',ha(8))
      ylim([1.5 4.3])
     set_monthly_tick(datenum(time_RACMO5,1,1));
     xlim(datenum([1958 2016],1,1))
-    h_tit = title('h) HAPA','Interpreter','tex');
+    h_tit = title('(h) HAPA','Interpreter','tex');
     h_tit.FontSize = 13; h_tit.Units = 'normalized'; 
     set(gca, 'layer','top','TickLength', get(gca,'TickLength')*1.5,'YAxisLocation','right')
     h_tit.Position = [0.21 0.17 0.1];

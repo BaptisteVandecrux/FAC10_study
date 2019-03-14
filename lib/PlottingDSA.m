@@ -55,7 +55,12 @@ met(ind,:) = [];
     ylabel('FAC_{10} (m^{3} m^{-2})','Interpreter','tex')
 
     leg_text_1 = {'Linear regression','$\pm 2 \times RMSD$','Temperature bins used for regression'};
-    leg_text_2 = {'1950 - 1959','1960 - 1969', '1980 - 1989','1990 - 1999','2000 - 2009','2010 - 2017'};
+    leg_text_2 = {['1950' char(8211) '1959'],...
+        ['1960' char(8211) '1969'],...
+        ['1980' char(8211) '1989'],...
+        ['1990' char(8211) '1999'],...
+        ['2000' char(8211) '2009'],...
+        ['2010' char(8211) '2017']};
         
 %     ha(1).Position =  [0.30  0.30 0.40   0.40];
 
@@ -94,7 +99,7 @@ h_p.LineStyle = 'none';
 axis tight
     box on
     xlabel('Year')
-    ylabel('Estimated - observed\newline     FAC_{10} (m)','interpreter','tex')
+    ylabel(['Estimated' char(8211) 'observed\newline     FAC_{10} (m)'],'interpreter','tex')
     ylim([-1 1])
         set(gca,'Ticklength',[0.08 0.16]/4,'layer','top')
 

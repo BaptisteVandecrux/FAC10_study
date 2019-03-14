@@ -62,7 +62,7 @@ function [] = PlottingFigure1(metadata, T_thresh, accum_thresh, ...
 
     set(gca,'Ticklength',[0.08 0.16]/2,'layer','top','yaxislocation','right')
     box on
-    ylabel('$\mathrm{\overline{\dot{c}} \:(mm w.eq. yr^{-1})}$','Interpreter','latex')
+    ylabel('$\mathrm{\overline{\dot{c}} \:(mm} \textrm{ } \mathrm{w.eq. yr^{-1})}$','Interpreter','latex')
     xlabel('$\mathrm{\overline{T_a}}  \:(^oC)$','Interpreter','latex') 
 
     % Explaining dataset division
